@@ -1000,77 +1000,258 @@ python -m hermesbench play traces/qwen_t03_*.cast
 
 ## 10. Open questions
 
-1. **Hermes subprocess vs in-process?** Subprocess is more faithful but
-   slower (Python startup × 40 tasks ≈ +60s). **Decision: subprocess +
-   tmux backend, always. Speed is not the bottleneck.**
-2. **Mode A vs Mode B in CI?** Mode A drags in all of hermes-agent's
-   deps. If we want a slim CI image, Mode B is the path. **Decision: ship
-   both, default to subprocess Mode A, tag results with mode so they
-   can't be confused.**
-3. **What fixture size cap?** 100 KB / task keeps the repo under 5 MB.
-   **Decision: 100 KB; document the cap in `tasks/_schema.py`.**
-4. **Token-budget per task?** Unbounded makes 70B models OOM.
-   **Decision: 8K context hard cap per task, configurable up to 32K.
-   Refused if exceeded.**
-5. **Should verifiers be allowed to import hermes-agent?** No — verifiers
-   must be stdlib-only so they're portable. **Decision: enforce via lint.**
-6. **Live web tasks in v0.1?** No — adds flakiness. **Decision: mock
-   corpus for v0.1, opt-in live in v0.4. Tasks opt into network via
-   `isolated_network: true` in `task.yaml`.**
+All decisions below were reached by checking three things: (a) what the
+hermes-agent harness actually does, (b) what canonical benchmarks
+(SWE-bench, lm-eval-harness, Terminal-Bench) have settled on, and
+(c) what the goal of a "world-class local-model benchmark" actually
+demands — not what was convenient to decide.
+
+### Original 19 questions (Q1-Q19)
+
+1. **Hermes subprocess vs in-process?** Subprocess + tmux backend, always.
+   The ~60s Python startup tax is irrelevant when each task already takes
+   30-300s. Faithfulness to hermes is non-negotiable.
+2. **Mode A vs Mode B in CI?** Ship both, default to subprocess Mode A.
+   **Mode B auto-fallback is strict:** triggered only when hermes-agent's
+   own `hermes_agent` package fails to import AND
+   `$HERMESBENCH_REQUIRE_HERMES=1` is unset. If `HERMESBENCH_REQUIRE_HERMES=1`,
+   fail loud with a "hermes-agent not found at $HERMES_AGENT_PATH" error —
+   never silently demote to Mode B in a misconfigured CI.
+3. **What fixture size cap?** 100 KB / task. **Gzip-or-split policy:**
+   if a fixture exceeds 100 KB raw, the task *must* either (a) gzip it
+   (committed as `fixture.bin.gz`, decompressed at worktree setup) or
+   (b) split it into ≤100 KB chunks and synthesize at runtime via the
+   verifier. The cap is enforced by `tests/lint_fixture_sizes.py`.
+4. **Token-budget per task?** 8K default, 32K max. **What happens at
+   the cap:** the runner returns a `VerifierResult(status="BUDGET_EXCEEDED",
+   reason=f"context_window_exceeded_at_{token_count}")` — distinct from
+   `PASS` and `FAIL` so it's filterable in results. The trace is still
+   captured (that's the SFT gold).
+5. **Should verifiers be allowed to import hermes-agent?** No, stdlib
+   only. **Lint implementation:** custom `tests/lint_verifiers.py`
+   uses `ast` to walk the verifier's source, rejects any import outside
+   a hardcoded allowlist (`os, sys, json, re, pathlib, hashlib, csv,
+   subprocess, tempfile, textwrap, datetime, collections, math,
+   itertools, statistics, difflib, xml.etree, typing, dataclasses`).
+   Runs in CI; failing build = task rejected at PR time.
+6. **Live web tasks in v0.1?** No. **Mock server shape:** `aiohttp`
+   (already in hermes-agent's deps — re-use, don't add a new one) running
+   in a `Thread` inside the runner on `127.0.0.1:0` (OS-assigned port,
+   no collision risk). Routes `GET /wiki/{slug}` → return committed
+   markdown from `fixtures/web_corpus/{slug}.md`; `/search?q=...` →
+   grep the corpus index. Started in `runner.py`'s setup, killed in
+   teardown, port passed to hermes via `WEB_EXTRACT_BASE_URL` env
+   var override of the web_extract tool's upstream base.
 7. **Should the tmux session be persistent across turns or per-call?**
-   Persistent — the model's `process` tool assumes long-running bg
-   processes can be polled across turns. **Decision: one tmux session
-   per task, killed in `cleanup()`.**
-8. **`unshare --net` or full network namespace?** `--net` only is enough
-   for our hermeticity goal (block internet, keep loopback for
-   localhost). **Decision: `unshare --net` per session when
-   `isolated_network: false`.**
+   Persistent — one tmux session per task, killed in `cleanup()`. The
+   model's `process` tool and `cd`/`export` patterns require this.
+8. **`unshare --net` or full network namespace?** `--net` only.
+   **Fallback when `unshare` is missing or no CAP_NET_ADMIN:**
+   skip isolation, emit a one-line warning to stderr ("network
+   isolation disabled: unshare not available"), and the task's
+   `isolated_network: true` still allows the task to run — hermeticity
+   is a best-effort property, not a hard guarantee, for v0.1.
+   **Never** block the benchmark on missing isolation.
 9. **What if hermes-agent doesn't have `--print-mode jsonl` yet?**
-   Fallback: ship a 50-LOC `print_jsonl` plugin that hooks the message
-   stream. **Decision: try CLI flag first, fall back to plugin. Both
-   paths land in v0.1.**
-10. **What cast format should we own long-term?** asciinema v2 (`.cast`)
-    is the standard — tools like `agg`, `asciinema-player`, and `termsvg`
-    all consume it. **Decision: asciinema v2 is the source of truth, GIF
-    is the rendered derivative.**
+   Try the CLI flag first. If `hermes_agent --help` doesn't show it,
+   **auto-discover the plugin path:** look for
+   `hermes_agent_patch/print_jsonl_plugin.py` in our own repo (vendored
+   in `hermes_agent_patch/`) and inject it via
+   `PYTHONPATH=$hermesbench/hermes_agent_patch python -m hermes_agent`.
+   No upstream PR required for v0.1; we ship the plugin ourselves.
+10. **What cast format should we own long-term?** asciinema v2 (`.cast`).
 11. **Does the cast include the prompt the model sees, or only its
-    output?** The whole terminal — prompt + output + errors. The model's
-    first user turn is `echo`-ed by hermes's print-mode anyway, so
-    reviewers see "Task: fix this off-by-one" → model's response. This
-    is what makes the cast self-explanatory on X. **Decision: capture
-    the entire pane.**
-12. **Cast file size growth?** 5-min cast ≈ 50-200 KB at 100ms tick
-    with diff-based flush. 40 tasks × 5 min = ~8 MB of casts per model
-    run. Acceptable for `traces/`. **Decision: keep all casts by
-    default, add `.gitignore`-friendly `--keep-casts=false` for bulk
-    runs.**
-13. **Render server-side or via `agg` local?** `agg` is a single static
-    binary, no server needed. **Decision: local render. CI uploads
-    GIFs as PR artifacts.**
-14. **5 Hz vs 10 Hz stats sampling?** Higher = more disk + more
-    interference. **Decision: 5 Hz default, configurable 1-20 Hz via
-    `--hz`. 5 Hz captures thermal transients (RTX 3090 warm-up takes
-    ~20-30s) without drowning the disk.**
-15. **What if `pynvml` isn't installed?** Falls back to `nvidia-smi`
-    subprocess *per sample* but warns the user that it's eating ~15%
-    of one core. We refuse to ship v0.1 without `pynvml` available.
-    **Decision: hard dep, fail loud at install time.**
-16. **What if the model has no GPU (CPU-only run)?** `statsd` still
-    collects CPU/RAM/NVMe stats and the GPU section is an empty list.
-    Scoring falls back to CPU-only metrics (joules per tok on package
-    power). **Decision: GPU-less mode is fully supported.**
-17. **RAPL MSR access requires root.** If we're not root, package
-    power falls back to `turbostat` (also root) → `powertop` estimate
-    → omit the field. **Decision: degrade gracefully, never crash
-    the benchmark because of a stats source.**
-18. **Do we record ambient temperature?** It matters for cross-run
-    fairness but requires a USB sensor. **Decision: out of scope for
-    v0.1. v0.2: optional `--ambient-sensor` flag for users with a
-    supported hwmon device (e.g. `coretemp`-style external probe).**
-19. **Should thermal warnings *deduct* from the score?** No — they
-    flag, they don't penalize. The score is what the model achieved.
-    Thermal state is metadata for the user to interpret.
-    **Decision: advisory warnings only, no score deduction.**
+    output?** The entire pane, including prompts + errors. The cast
+    is a faithful recording of what a user would see if they
+    `tmux attach`'d to the session.
+12. **Cast file size growth?** `.gitignore` `traces/*.cast` globally.
+    Casts are local-only artifacts; they're committed to a results
+    archive on demand (`hermesbench archive --push` → tarball to
+    `~/.hermes/archives/`), not the repo. The `--keep-casts=false`
+    flag is removed in favor of the gitignore.
+13. **Render server-side or via `agg` local?** `agg` local, single
+    static binary, no server.
+14. **5 Hz vs 10 Hz stats sampling?** 5 Hz default, configurable.
+    **Jitter control:** `time.monotonic_ns` + a busy-wait correction
+    loop (the collector is at nice 19, the 0.1% CPU we burn doesn't
+    matter). Drift target: <2% over 1 minute.
+15. **What if `pynvml` isn't installed?** Hard dep, fail loud. **Refined
+    trigger:** fail loud at *runtime* if a GPU is detected but `pynvml`
+    is missing (the GPU telemetry is the whole point). If `pynvml`
+    init succeeds *and* `nvmlDeviceGetCount() == 0`, the run is
+    CPU-only and `pynvml` is fine being absent — we skip GPU collection
+    cleanly.
+16. **What if the model has no GPU (CPU-only run)?** Fully supported.
+    **Detection:** `pynvml.nvmlInit()` succeeds, returns count=0 → GPU
+    section is `[]`. Scoring falls back to CPU-only metrics. If
+    `pynvml` import fails *and* `nvidia-smi` is missing, treat as
+    CPU-only; if `nvidia-smi` is present, refuse to run with a clear
+    "pynvml required when nvidia-smi exists" error.
+17. **RAPL MSR access requires root.** Graceful degrade. **Field
+    semantics:** unavailable fields are emitted as JSON `null`, not
+    dropped and not `"unavailable"`. Scoring treats `null` as "exclude
+    from the aggregate" — so a non-root run still produces valid
+    `joules_per_output_token` from GPU power alone.
+18. **Do we record ambient temperature?** Out of scope for v0.1.
+19. **Should thermal warnings *deduct* from the score?** No. Advisory.
+
+### New questions discovered during research (Q20-Q42)
+
+These were identified while re-reading the plan against hermes-agent's
+actual surface and what canonical benchmarks do.
+
+20. **TaskSpec schema (`task.yaml` field list).** Final spec:
+    ```yaml
+    id: t03_patch_edit/t02_patch_ambiguous
+    name: "Patch — ambiguous match recovery"
+    version: 1
+    prompt: |
+      Two functions in src/config.py both define `TIMEOUT = 30`.
+      Remove the duplicate (the one in `legacy_init`).
+    allowed_tools:
+      - read_file
+      - patch
+      - search_files
+      - terminal
+    forbidden_tools: []          # v0.2
+    max_turns: 30                # hard cap on tool-call iterations
+    max_tokens: 8192             # context budget (Q4)
+    timeout_seconds: 180         # wall-clock cap
+    isolated_network: false      # unshare --net default
+    fixture:                     # what worktree_setup() copies
+      source: small_repo
+      globs: ["**/*.py"]
+    verifier:                    # entry point
+      module: verifier
+      fn: verify
+      timeout_seconds: 30
+    tags: ["patch", "ambiguous-match", "code-edit"]
+    ```
+21. **Artifact naming convention.** `<run_id>_<task.id>_{trace.jsonl,cast,stats.jsonl}`
+    where `run_id = "<model_slug>_<YYYYMMDD-HHMMSS>_<8char-uuid>"`. Example:
+    `qwen2.5-coder-7b-instruct-q4_k_m_20260602-181530_a1b2c3d4_t03_patch_edit-t02_patch_ambiguous_trace.jsonl`.
+    `run_id` is the join key across all three artifacts.
+22. **How does `runner.py` find the hermes-agent checkout?**
+    Resolution order, first hit wins: (1) `$HERMES_AGENT_PATH` env
+    var, (2) `./hermes-agent/` relative to the hermesbench repo root,
+    (3) `~/.hermes/hermes-agent/`, (4) `import hermes_agent` succeeds
+    on `$PYTHONPATH`. Chosen path recorded in
+    `results/<run_id>/meta.json`.
+23. **Concurrency policy.** `--jobs N`, default `1`. Rationale:
+    sequential is the only mode that gives honest statsd readings —
+    two concurrent hermes instances on one GPU thrash and confuse the
+    J/tok measurement. Users wanting speed run two `hermesbench` processes
+    on different GPU devices (`CUDA_VISIBLE_DEVICES=0 hermesbench run
+    ...` + `CUDA_VISIBLE_DEVICES=1 hermesbench run ...`), then merge
+    via `hermesbench merge results/run1 results/run2`.
+24. **Resume / partial-failure handling.** The `run_id` is the resume
+    key. `hermesbench run --task t03 ... --resume <run_id>` skips
+    tasks whose `<run_id>_<task_id>_*_trace.jsonl` exists AND whose
+    `meta.json` has `"status": "completed"`. Crashed tasks (no
+    `meta.json` or `"status": "crashed"`) are re-run. Default on
+    re-invocation without `--resume`: never overwrite, new run gets
+    a new `run_id`.
+25. **License.** **MIT.** Matches hermes-agent upstream. Maximizes
+    adoption and SFT-data sharing; we're a benchmark, not a product.
+26. **Versioning.** Both `pyproject.toml` version (PEP 440) and `git
+    tag` (v0.1.0). v0.1 = first usable release per the current plan;
+    we use SemVer so `0.1.0` says "pre-1.0, API may shift."
+27. **CI provider.** **GitHub Actions** (since the repo is on GitHub).
+    `.github/workflows/ci.yml` runs on every PR: lint + unit tests +
+    `test_recorder_roundtrip` + `test_statsd_runs` + a small smoke run
+    against a tiny model on a CI-hosted GPU. Workflow file is part of
+    Phase 8.
+28. **Task category file layout.** `tasks/_template/` ships a
+    copy-pasteable skeleton (`task.yaml`, `verifier.py`, `fixture/`,
+    `README.md`). Adding a task = `cp -r _template t11_foo/t01_my_task/`
+    + edit. The template is the documented reference for contributors.
+29. **Fixture scope per task.** `task.yaml` declares `fixture:` with
+    a `source:` (subdir of `fixtures/`) and optional `globs:`.
+    `worktree_setup(task)` copies *only* what's listed — never the
+    whole `fixtures/` dir. This is what makes the test hermetic.
+30. **Code style.** **ruff** (lint + format, single tool), **mypy
+    strict** for `hermesbench/` proper, **stdlib types** for tasks.
+    `pyproject.toml` enforces all three. Pre-commit hook installed in
+    Phase 0.
+31. **Type hints everywhere.** `from __future__ import annotations`
+    in every file. `pyright` is the local check (faster), `mypy` runs
+    in CI (canonical). `py.typed` marker included so downstream
+    hermes-agent consumers get type completion.
+32. **Logging convention.** **`rich.console.Console(stderr=True)`**
+    for operator-facing output (progress, summaries, warnings).
+    **`logging` to `logs/<run_id>.log`** for everything machine-greppable.
+    **`print` is banned** outside `__main__` scripts (enforced by
+    `ruff` rule `T201`).
+33. **Exit codes.** Canonical table:
+    | Code | Meaning |
+    |---:|---|
+    | 0 | Success (all requested tasks scored) |
+    | 1 | Some tasks failed (verifier returned `FAIL`) |
+    | 2 | Setup error (hermes-agent not found, fixture missing) |
+    | 3 | Partial run (timeout, OOM, ctrl-c) — resume with `--resume` |
+    | 4 | User error (bad CLI args, bad task id) |
+    | 130 | SIGINT (ctrl-c); cleanup ran |
+34. **Determinism: N-runs per task.** **N=1 by default, N=3 opt-in
+    via `--n-runs 3`.** Rationale: hermes-agent's `temperature=0` is
+    supported (model-dependent) and gives reproducible traces; local
+    model users care about per-token latency more than aggregate
+    variance, so N=1 with explicit temperature control is the
+    primary path. N=3 mode reports `pass_rate` as the *count of
+    runs that passed* out of 3, plus `mean/median/p90 wall_clock`.
+    N=3 is ~3× the cost; v0.1 keeps it opt-in so the dogfood loop
+    stays fast.
+35. **Verifier return contract.** `VerifierResult` dataclass:
+    ```python
+    @dataclass
+    class VerifierResult:
+        status: Literal["PASS", "FAIL", "SKIPPED", "BUDGET_EXCEEDED", "VERIFIER_ERROR"]
+        score: float = 1.0  # 1.0 for PASS, 0.0 for FAIL; fractional for partial credit
+        reason: str = ""     # human-readable, persisted to results
+        details: dict = field(default_factory=dict)  # structured, persisted
+    ```
+    `VerifierResult` JSON-serialized to `results/<run_id>/<task_id>.json`.
+36. **Mock server lifecycle.** Started once per `hermesbench run`
+    invocation (not per task), on `127.0.0.1:0`, kept alive for the
+    whole benchmark. Its port is injected into the model via
+    `WEB_EXTRACT_BASE_URL` env var; the model sees a "real" web with
+    deterministic responses. Server is killed in `runner.py`'s
+    `finally:` block.
+37. **`render-reel` concat semantics.** `--max-total-seconds 60`
+    default. Each cast is trimmed to its first `--per-task-seconds 20`
+    of *interesting content* (heuristic: skip first 3s of warmup,
+    keep the first tool call, keep any `FAIL` lines, keep the final
+    assistant message). Output: a 60s GIF, perfect for X.
+38. **Stats plot library.** **matplotlib** PNGs for v0.1 (de-facto
+    standard, already in hermes-agent's optional deps, no install
+    surprise). The `--plot` flag also writes a CSV alongside the
+    PNG so users can re-plot in their tool of choice.
+39. **`--overlay-stats` rendering.** **Static overlay** (one PNG
+    strip per frame, baked from the stats file at render time).
+    Much simpler than per-frame PIL; the HUD never needs to be
+    live because we know the timing from the stats file. `agg`
+    supports `--add-layer` for this natively.
+40. **Hermes-agent upstream PR scope.** **Plugin, not fork.** The
+    `TmuxIsolatedEnvironment` class lives in our repo at
+    `hermesbench/backend/tmux_isolated.py`. The *small* upstream PR
+    to hermes-agent adds a one-line entry in the `_create_environment`
+    factory: `elif env_type == "tmux_isolated": from hermesbench...
+    return TmuxIsolatedEnvironment(...)`. The bigger PR — making
+    the env-type pluggable via plugin discovery — is a v0.2 ask.
+    Until upstream merges, the `print_jsonl_plugin.py` injection
+    pattern from Q9 keeps us 100% functional with zero upstream change.
+41. **Multi-GPU support.** `pynvml` reports per-device. **Aggregation
+    policy:** for `mean_gpu_power_w` etc., report both per-GPU and
+    sum-across-GPUs. `joules_per_output_token` uses the sum (that's
+    what the wall socket sees). Output columns:
+    `gpu[0].power_w, gpu[1].power_w, gpu_total.power_w`.
+42. **Subprocess hermes timeout cliff.** **On `TimeoutExpired`:**
+    (a) `proc.kill()` (SIGKILL the hermes process), (b) `tmux kill-session`
+    (catches anything the child forked), (c) `worktree rm -rf` (catches
+    stragglers), (d) **flush the partial trace to disk** via
+    `Popen.stdout.read1()` (non-blocking drain) and append to the
+    trace. Mark the run with `meta.json: {status: "TIMEOUT", partial:
+    true}`. Partial trace is still useful for SFT — first N turns are
+    often correct.
 
 ---
 
