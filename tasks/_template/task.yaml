@@ -1,0 +1,54 @@
+id: t_category/tNN_short_name
+name: "Human-readable task name"
+version: 1
+difficulty: 2
+tags: [tool-name, scenario-tag]
+
+prompt: |
+  The actual user message the model will see. Multi-line YAML literal.
+  Keep it under 500 chars to leave room for tool-call context.
+
+allowed_tools:
+  - read_file
+  - patch
+  - terminal
+
+forbidden_tools: []
+
+max_turns: 30
+max_tokens: 8192
+timeout_seconds: 180
+isolated_network: false
+
+fixture:
+  source: small_repo
+  globs: ["**/*.py"]
+
+sampling:
+  temperature: 0.0
+  top_p: 1.0
+  top_k: -1
+  seed: 42
+
+resource_limits:
+  max_memory_mb: 4096
+  max_processes: 256
+  max_file_size_mb: 1024
+  max_worktree_mb: 2048
+
+hermes_plugins: []
+
+latency_injection_ms:
+  terminal: 0
+  read_file: 0
+  patch: 0
+
+model_endpoint:
+  type: openai_chat_completions
+  required_fields: [tools, tool_choice]
+  forbidden_fields: [logprobs]
+
+verifier:
+  module: verifier
+  fn: verify
+  timeout_seconds: 30
