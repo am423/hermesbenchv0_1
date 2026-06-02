@@ -66,8 +66,9 @@ turns so they finish in 2-15 min on a 7B model.
 | Principle | Decision |
 |---|---|
 | **Simple** | Single Python entry point, no Docker, no orchestrator. Stdlib + `pyyaml` only. |
-| **Reproducible** | Tasks ship a deterministic input fixture (committed to repo). Same input → same expected output. No live network. |
-| **Hermes-shaped** | Tasks are run via the actual `AIAgent` (or a slim `HermesBenchHarness` that reuses `model_tools.py` + `tools/registry.py`). Models see real tool schemas, real error envelopes. |
+| **Reproducible** | Tasks ship a deterministic input fixture (committed to repo). Same input → same expected output. Network-disabled by default. |
+| **Hermes-shaped** | Tasks are run via the real `AIAgent`, spawned as a subprocess, with `TERMINAL_ENV=tmux_isolated` so the model sees real tool schemas, real error envelopes, real conversation flow. No in-process wrapping. |
+| **Isolated** | Each task gets a fresh `tmux` session, a fresh worktree, and an isolated `$HOME`. Network is `unshare --net` by default. Cleanup is signal-safe. |
 | **Trace-capturing** | Every run writes `traces/<model>_<task>_<timestamp>.jsonl` with one line per message in the exact format the harness produces. |
 | **SFT-ready** | Each trace is a complete conversation (`system → user → assistant(tool_calls) → tool → ... → assistant(content)`). We can slice it into `(prompt, completion)` pairs directly. |
 | **Scored** | Each task has a deterministic verifier. No LLM-as-judge in v0.1. |
@@ -85,6 +86,42 @@ turns so they finish in 2-15 min on a 7B model.
 
 ## 3. Architecture
 
+The core design decision: **isolation lives at the environment layer, not the
+harness layer.** Hermes already has a pluggable `BaseEnvironment` backend
+(local, docker, ssh, modal, daytona, singularity) selected by the
+`TERMINAL_ENV` env var. Rather than wrap or replace `AIAgent`, we add a
+**new backend: `tmux_isolated`**. Each benchmark task spins up a fresh
+tmux session inside a fresh worktree, and the model runs against the real
+`AIAgent` exactly as it would in production — same tool schemas, same error
+envelopes, same conversation loop. The only thing different is the box
+underneath.
+
+### Why tmux (not docker, not a wrapper)
+
+- **Hermes already has docker isolation** — but a Docker container breaks
+  our ability to test model behavior in the *same environment* a user runs
+  (no shared GPU, no shared `~/.cache/huggingface`, no shared tool
+  installations, no realistic filesystem latency). The benchmark would
+  measure "model on a cold box" not "model in our user's world."
+- **tmux gives us isolation without virtualization.** Each task gets:
+  - a fresh `tmux` session (`hermesbench-<task_id>-<uuid>`)
+  - a fresh working directory (git worktree or tmp dir) that the model
+    can freely `rm -rf` without nuking anything real
+  - a fresh `$HOME` redirect (so `~/.bash_history`, `memory` tool
+    state, and shell config are clean)
+  - network-isolated mode optional (`unshare --net` if the task needs it)
+  - guaranteed cleanup on exit (signal-safe tmux kill)
+- **It's a thin backend**, ~150 LOC following the existing `LocalEnvironment`
+  pattern, so the `BaseEnvironment` ABC gives us CWD tracking, session
+  snapshot, and timeout enforcement for free.
+- **The model doesn't know it's isolated.** It still calls `terminal`,
+  `read_file`, `write_file`, `patch` — the only difference is that
+  `terminal` is now backed by `tmux send-keys` + `tmux capture-pane` in a
+  fresh session. This is exactly how a user running hermes-agent in a
+  detached tmux session would experience it.
+
+### Layout
+
 ```
 hermesbenchv0_1/
 ├── project.md                  # this file
@@ -94,9 +131,14 @@ hermesbenchv0_1/
 │   ├── __init__.py
 │   ├── __main__.py             # `python -m hermesbench ...`
 │   ├── cli.py                  # CLI: run / score / export / list
-│   ├── harness.py              # wraps AIAgent OR a slim in-process loop
-│   ├── scoring.py              # deterministic verifiers
-│   ├── trace.py                # trace recorder (jsonl writer)
+│   ├── runner.py               # task lifecycle: setup → spawn hermes → trace → teardown
+│   ├── backend/
+│   │   ├── __init__.py
+│   │   ├── tmux_isolated.py    # BaseEnvironment subclass (see §3.1)
+│   │   └── worktree.py         # per-task worktree / tmp / home setup
+│   ├── hermes_invocation.py    # spawns `python -m hermes_agent --quiet` per task
+│   ├── scoring.py              # deterministic verifiers + metric aggregation
+│   ├── trace.py                # jsonl trace recorder
 │   └── tasks/
 │       ├── __init__.py         # task registry
 │       ├── _schema.py          # TaskSpec dataclass + validator
@@ -115,6 +157,9 @@ hermesbenchv0_1/
 │   ├── broken_code/           # 10 small broken snippets to fix
 │   ├── data_files/            # CSV/JSON for search tasks
 │   └── web_corpus/            # 50 mock pages for web_extract (no live net)
+├── hermes_agent_patch/         # minimal upstream patch needed in hermes-agent
+│   ├── TERMINAL_ENV_tmux.md    # docs: how to register the new backend
+│   └── _create_environment.py  # diff: add 'tmux_isolated' to factory
 ├── traces/                     # gitignored: per-run output
 │   └── .gitkeep
 ├── results/                    # gitignored: aggregated scores
@@ -122,22 +167,133 @@ hermesbenchv0_1/
 └── .gitignore
 ```
 
-### Two execution modes
+### 3.1 The `TmuxIsolatedEnvironment` backend
 
-**Mode A — `AIAgent` wrapper (default).** Import `AIAgent` from
-`~/.hermes/hermes-agent/run_agent.py`. Run via the existing OpenAI-compatible
-`client.chat.completions.create(messages=..., tools=...)` interface. Capture
-every message into a jsonl trace. **This is the canonical mode** — it scores
-the model exactly as a user would experience it.
+Subclass of `BaseEnvironment` in
+`hermesbench/backend/tmux_isolated.py`. ~150 LOC. Mirrors `LocalEnvironment`
+but:
 
-**Mode B — `HermesBenchHarness` (fallback / CI).** A 200-line slim harness
-that loads tool schemas from `tools/registry.py` but makes raw
-`chat.completions.create` calls itself. Used when the full `AIAgent` can't be
-imported (e.g., CI without all hermes-agent deps) or when we want byte-perfect
-control over which messages get sent. **Same tool schemas, same error
-envelopes, same trace format** as Mode A.
+```python
+class TmuxIsolatedEnvironment(BaseEnvironment):
+    def __init__(self, *, session_name: str, worktree: Path, isolated_home: Path,
+                 network: bool = True, timeout: int = 120, **kwargs):
+        super().__init__(cwd=str(worktree), timeout=timeout, **kwargs)
+        self._session = session_name
+        self._worktree = worktree
+        self._isolated_home = isolated_home
+        self._network = network
+        # Created in init_session(); killed in cleanup().
 
-Mode selection is automatic: try A, fall back to B on ImportError.
+    def init_session(self):
+        # 1. `tmux new-session -d -s $self._session -c $self._worktree`
+        # 2. `tmux send-keys -t $self._session 'export HOME=...; export PS1=; stty -echo' Enter`
+        # 3. capture snapshot as in LocalEnvironment.init_session()
+        super().init_session()  # writes /tmp/hermes-snap-*.sh inside the session
+
+    def _run_bash(self, cmd_string, *, login=False, timeout=120, stdin_data=None):
+        # If network=False: wrap with `unshare --net` inside the tmux send-keys
+        # path. Otherwise plain bash -c as LocalEnvironment does.
+        # Returns a _ThreadedProcessHandle that wraps tmux capture-pane polling.
+        ...
+
+    def cleanup(self):
+        # signal-safe: `tmux kill-session -t $self._session` then
+        # `rm -rf $self._worktree $self._isolated_home`
+        # Idempotent: safe to call from a SIGTERM handler.
+        ...
+```
+
+Key properties:
+- **One tmux session per task** — not per tool call. This matches what a
+  user actually does (`tmux new -s work`, run the agent, attach to watch).
+- **Bash state persists across tool calls** within a task (the model can
+  `cd`, `export VAR=foo`, start a long-running process and check it next
+  turn). This is *crucial* — Hermes' `process` tool is built on the
+  assumption of session-level persistence.
+- **Worktree + isolated `$HOME` per task** — model can `rm -rf` the
+  worktree, write to `~/.config/whatever`, run `git push` — none of it
+  leaks to the host.
+- **Optional `--net` isolation** — for tasks that should be hermetic (most
+  file/code tasks), the tmux session can run under `unshare --net` so the
+  model literally cannot reach the internet. Web-lookup tasks explicitly
+  opt out.
+- **Snapshot file lives inside the worktree** (`$worktree/.hermes-snap.sh`),
+  not `/tmp`, so the session is fully self-contained.
+
+### 3.2 The hermes-agent invocation
+
+The benchmark runner does **not** import `AIAgent` as a library. Instead it
+**spawns hermes-agent as a subprocess per task**:
+
+```python
+# hermesbench/hermes_invocation.py (sketch)
+def run_task(task: TaskSpec, model: str, base_url: str) -> Path:
+    worktree = worktree_setup(task)
+    session_name = f"hermesbench-{task.id}-{uuid4().hex[:8]}"
+    isolated_home = mkdtemp(prefix="hermesbench-home-")
+
+    # Start tmux session with isolated env
+    env_overrides = {
+        "TERMINAL_ENV": "tmux_isolated",       # our new backend
+        "HERMES_TMUX_SESSION": session_name,
+        "HERMES_TMUX_WORKTREE": str(worktree),
+        "HERMES_TMUX_HOME": str(isolated_home),
+        "HERMES_TMUX_NET": "off" if task.isolated_network else "on",
+        "OPENAI_BASE_URL": base_url,
+        "OPENAI_MODEL": model,
+        "HERMES_QUIET": "1",                   # no TUI noise
+        "HERMES_SAVE_TRAJECTORY": "1",         # so hermes writes its own session
+        "HERMES_TRAJECTORY_PATH": str(worktree / ".hermes-traj.jsonl"),
+    }
+
+    # Spawn hermes-agent in a way that streams all messages to our trace
+    proc = subprocess.Popen(
+        ["python", "-m", "hermes_agent", "--print-mode", "jsonl", "--no-tui"],
+        cwd=worktree, env={**os.environ, **env_overrides},
+        stdout=PIPE, stderr=PIPE, text=True,
+    )
+    # Feed the task prompt via stdin (hermes reads it on first turn)
+    proc.stdin.write(task.prompt + "\n")
+    proc.stdin.flush()
+
+    # Stream every line of hermes's jsonl output into our trace file
+    trace_path = worktree / f"trace-{task.id}.jsonl"
+    with trace_path.open("w") as f:
+        for line in proc.stdout:
+            f.write(line)
+    proc.wait(timeout=task.timeout_seconds)
+    return trace_path
+```
+
+The `--print-mode jsonl` flag is the only upstream change we ask for in
+`hermes-agent`: it makes hermes print every message it sends/receives
+(system, user, assistant, tool) as a jsonl line on stdout. We capture
+that stream as the trace. **This is the minimal invasive change** —
+everything else (tool schemas, error envelopes, conversation flow) is
+hermes's existing behavior.
+
+If `--print-mode jsonl` doesn't exist upstream yet, our fallback is to
+write a small hermes-agent plugin (`hermes_observability/print_jsonl.py`)
+that hooks the message stream and prints to stdout. Even less invasive.
+
+### 3.3 Why this is better than a wrapper
+
+| Approach | Faithful to hermes? | Easy to maintain? | Trivial cleanup? | Captures real traces? |
+|---|:---:|:---:|:---:|:---:|
+| Subprocess hermes + tmux backend | ✓ exact | ✓ hermes stays unchanged | ✓ SIGTERM → kill tmux → rm worktree | ✓ real conversation |
+| In-process `AIAgent` wrapper | ⚠ re-entrancy bugs in plugins | ✗ every hermes API change breaks us | ✗ exceptions can leak host state | ✓ real conversation |
+| Custom slim harness (Mode B) | ✗ missing skills, memory, hooks | ✓ | ✓ | ✗ not real hermes |
+| Docker per task | ✗ no shared GPU/cache | ✗ docker-in-docker on CI | ⚠ `docker rm -f` can hang | ✓ real conversation |
+
+**Mode B (slim harness) is still kept** for hermes-less CI smoke tests
+(e.g. `pytest tests/test_verifiers.py` doesn't need hermes-agent
+installed). But the **canonical benchmark runs in subprocess mode** with
+the tmux backend.
+
+Mode selection:
+- `python -m hermesbench run --task ...` → subprocess + tmux (default)
+- `python -m hermesbench run --task ... --slim` → in-process slim harness
+  (for hermes-less CI; flagged in results so it's never compared head-to-head)
 
 ### Trace format (one jsonl line per harness message)
 
@@ -336,41 +492,60 @@ python -m hermesbench export-sft \
 
 ## 7. Implementation phases
 
-### Phase 1 — Skeleton + Mode A harness (Day 1-2)
+### Phase 1 — Skeleton + `TmuxIsolatedEnvironment` backend (Day 1-3)
 - [ ] `pyproject.toml` + `hermesbench/` package skeleton
-- [ ] `harness.py` with `AIAgent` wrapper that streams messages into the trace recorder
-- [ ] `trace.py` jsonl writer
-- [ ] 1 task per category as smoke tests (10 tasks)
-- [ ] Verify a known-good model (e.g. Hermes 4 70B via OpenRouter) passes them
+- [ ] `backend/tmux_isolated.py` — first cut: `init_session`, `_run_bash`, `cleanup`
+- [ ] `backend/worktree.py` — `worktree_setup(task)` copies fixtures, sets up isolated `$HOME`
+- [ ] `runner.py` — task lifecycle: setup → spawn hermes → trace → teardown
+- [ ] Manual smoke test: 1 task against a real model, confirm tmux session is
+      created, model runs, tmux is killed, worktree is removed
+- [ ] Add the `TERMINAL_ENV=tmux_isolated` branch to hermes-agent's
+      `_create_environment()` factory (1-line PR to `tools/terminal_tool.py`)
 
-### Phase 2 — Author 40 tasks (Day 3-7)
+### Phase 2 — `hermes_invocation.py` + jsonl trace streaming (Day 4-5)
+- [ ] Spawn `python -m hermes_agent --print-mode jsonl --no-tui` as a subprocess
+- [ ] Stream every jsonl line from hermes's stdout into the trace file
+- [ ] If `--print-mode jsonl` doesn't exist upstream, build the
+      `hermes_observability/print_jsonl.py` plugin as a fallback
+- [ ] Verify trace format matches the wire format in §3 "Trace format"
+
+### Phase 3 — Author 40 tasks (Day 6-10)
 - [ ] Categories 1-6 (29 tasks): file/terminal/process — the 88% bulk
 - [ ] Categories 7-10 (11 tasks): todo/exec_code/web/memory
 - [ ] Each task gets: `task.yaml`, `verifier.py`, fixture data
+- [ ] Each task declares `isolated_network: bool` in `task.yaml`
+      (defaults to `false` for hermeticity)
 - [ ] Commit fixtures to repo (size cap: 100 KB per fixture, gzip if larger)
 
-### Phase 3 — Mode B fallback harness (Day 8)
+### Phase 4 — Mode B (slim harness) for hermes-less CI (Day 11)
 - [ ] `HermesBenchHarness` 200-line implementation
-- [ ] Auto-fallback test: kill `AIAgent` import path, confirm Mode B runs
+- [ ] Auto-fallback test: hermes-less env, confirm Mode B runs
+- [ ] Results from Mode B runs are tagged `mode=slim` so they're never
+      compared head-to-head with subprocess mode
 
-### Phase 4 — Scoring + reporting (Day 9)
+### Phase 5 — Scoring + reporting (Day 12)
 - [ ] `scoring.py` computes all 6 metrics
 - [ ] `results/<model>_<date>.json` per-run aggregate
 - [ ] Pretty-print summary table
 
-### Phase 5 — Export to SFT format (Day 10)
+### Phase 6 — Export to SFT format (Day 13)
 - [ ] `export-sft` command: traces → OpenAI / ShareGPT / Hermes message formats
 - [ ] Sanity check: load exported SFT jsonl, count completions, inspect a sample
 
-### Phase 6 — Initial baseline runs (Day 11-12)
+### Phase 7 — Initial baseline runs (Day 14-15)
 - [ ] Run against 3 representative local models: a small (3-4B), a medium (7-8B), a large (32-70B)
 - [ ] Publish `results/baseline_<date>.md` in the repo
 - [ ] Commit traces (or a sample of them) so others can reproduce
+- [ ] Confirm: every task's tmux session was killed, every worktree was rm-rf'd
+      (post-mortem script scans `/tmp` and `tmux ls` for leaks)
 
-### Phase 7 — v0.1 release tag (Day 13)
-- [ ] README with quick-start, results table, "how to add a task" guide
+### Phase 8 — v0.1 release tag (Day 16)
+- [ ] README with quick-start, results table, "how to add a task" guide,
+      "how to add a new environment backend" guide
+- [ ] Open upstream PR to hermes-agent: register `tmux_isolated` backend
 - [ ] `git tag v0.1`
-- [ ] Internal dogfood: run the suite in our own dev loop for 1 week, fix anything that breaks
+- [ ] Internal dogfood: run the suite in our own dev loop for 1 week,
+      fix anything that breaks
 
 ---
 
@@ -393,16 +568,48 @@ python -m hermesbench export-sft \
 - [ ] At least 100 trace jsonl files committed (dogfooding)
 - [ ] `export-sft` produces a valid jsonl that fine-tunes a model to ≥+5% pass-rate on a held-out task
 - [ ] README lets a new user run their first task in <5 min
+- [ ] `TmuxIsolatedEnvironment` backend passes a leak test: after 40 task
+      runs, `tmux ls` shows no `hermesbench-*` sessions and
+      `/tmp/hermesbench-*` is empty
+- [ ] `hermes-agent` upstream has the `TERMINAL_ENV=tmux_isolated` branch
+      merged (or our patch is vendored in `hermes_agent_patch/`)
+- [ ] Subprocess-mode runs use real `AIAgent`; verified by grepping
+      trace jsonl for messages whose `role=tool` carries
+      `success: bool` envelopes (a sign the real tool handlers ran)
 
 ---
 
 ## 10. Open questions
 
-1. **Mode A vs Mode B in CI?** Mode A drags in all of hermes-agent's deps. If we want a slim CI image, Mode B is the path. **Decision: ship both, default to A.**
-2. **What fixture size cap?** 100 KB / task keeps the repo under 5 MB. **Decision: 100 KB; document the cap in `tasks/_schema.py`.**
-3. **Token-budget per task?** Unbounded makes 70B models OOM. **Decision: 8K context hard cap per task, configurable up to 32K. Refused if exceeded.**
-4. **Should verifiers be allowed to import hermes-agent?** No — verifiers must be stdlib-only so they're portable. **Decision: enforce via lint.**
-5. **Live web tasks in v0.1?** No — adds flakiness. **Decision: mock corpus for v0.1, opt-in live in v0.4.**
+1. **Hermes subprocess vs in-process?** Subprocess is more faithful but
+   slower (Python startup × 40 tasks ≈ +60s). **Decision: subprocess +
+   tmux backend, always. Speed is not the bottleneck.**
+2. **Mode A vs Mode B in CI?** Mode A drags in all of hermes-agent's
+   deps. If we want a slim CI image, Mode B is the path. **Decision: ship
+   both, default to subprocess Mode A, tag results with mode so they
+   can't be confused.**
+3. **What fixture size cap?** 100 KB / task keeps the repo under 5 MB.
+   **Decision: 100 KB; document the cap in `tasks/_schema.py`.**
+4. **Token-budget per task?** Unbounded makes 70B models OOM.
+   **Decision: 8K context hard cap per task, configurable up to 32K.
+   Refused if exceeded.**
+5. **Should verifiers be allowed to import hermes-agent?** No — verifiers
+   must be stdlib-only so they're portable. **Decision: enforce via lint.**
+6. **Live web tasks in v0.1?** No — adds flakiness. **Decision: mock
+   corpus for v0.1, opt-in live in v0.4. Tasks opt into network via
+   `isolated_network: true` in `task.yaml`.**
+7. **Should the tmux session be persistent across turns or per-call?**
+   Persistent — the model's `process` tool assumes long-running bg
+   processes can be polled across turns. **Decision: one tmux session
+   per task, killed in `cleanup()`.**
+8. **`unshare --net` or full network namespace?** `--net` only is enough
+   for our hermeticity goal (block internet, keep loopback for
+   localhost). **Decision: `unshare --net` per session when
+   `isolated_network: false`.**
+9. **What if hermes-agent doesn't have `--print-mode jsonl` yet?**
+   Fallback: ship a 50-LOC `print_jsonl` plugin that hooks the message
+   stream. **Decision: try CLI flag first, fall back to plugin. Both
+   paths land in v0.1.**
 
 ---
 
@@ -410,5 +617,11 @@ python -m hermesbench export-sft \
 
 - Hermes Agent harness: `~/.hermes/hermes-agent/run_agent.py` (AIAgent)
 - Tool schemas: `~/.hermes/hermes-agent/tools/registry.py` + `toolsets.py`
+- Environment backend ABC: `~/.hermes/hermes-agent/tools/environments/base.py`
+- Existing backends: `local.py`, `docker.py`, `ssh.py`, `modal.py`,
+  `daytona.py`, `singularity.py` (use `LocalEnvironment` as the
+  structural reference for `TmuxIsolatedEnvironment`)
+- Backend selection: `TERMINAL_ENV` env var, dispatched by
+  `_create_environment()` in `tools/terminal_tool.py:1143`
 - Session data source: `~/.hermes/state.db` (SQLite, FTS5-indexed)
 - AIAgent loop contract: see `AGENTS.md` § "Agent Loop"
