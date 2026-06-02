@@ -66,7 +66,10 @@ turns so they finish in 2-15 min on a 7B model.
 | Principle | Decision |
 |---|---|
 | **Simple** | Single Python entry point, no Docker, no orchestrator. Runtime deps: `pyyaml`, `pyte` (cast capture), `psutil` (CPU/RAM/process), `pynvml` (NVIDIA GPU), `py-cpuinfo` (CPU model). Build deps: `agg` binary (GIF), `ffmpeg` (MP4). |
-| **Reproducible** | Tasks ship a deterministic input fixture (committed to repo). Same input → same expected output. Network-disabled by default. |
+| **Reproducible** | Tasks ship a deterministic input fixture (committed to repo). Same input → same expected output. Network-disabled by default. Sampling controls (`temperature=0.0`, `seed=42`) injected per task so runs are comparable. |
+| **Comparable** | Cross-run comparisons check thermal state — runs with 35% different peak temps print a warning, not a score change. hermes-agent SHA pinned in `meta.json`. |
+| **Resource-bounded** | Every task declares per-task resource limits (memory, processes, file size, worktree size). A runaway model cannot DoS the host. |
+| **Tier-calibrated** | Every task has a difficulty tier (1/2/3); scoring reports `pass_rate_by_difficulty` so calibration is visible. |
 | **Hermes-shaped** | Tasks are run via the real `AIAgent`, spawned as a subprocess, with `TERMINAL_ENV=tmux_isolated` so the model sees real tool schemas, real error envelopes, real conversation flow. No in-process wrapping. |
 | **Isolated** | Each task gets a fresh `tmux` session, a fresh worktree, and an isolated `$HOME`. Network is `unshare --net` by default. Cleanup is signal-safe. |
 | **Trace-capturing** | Every run writes `traces/<model>_<task>_<timestamp>.jsonl` with one line per message in the exact format the harness produces. |
@@ -87,6 +90,38 @@ turns so they finish in 2-15 min on a 7B model.
 ---
 
 ## 3. Architecture
+
+### 3.0 Data flow (the 30-second version)
+
+```
+task.yaml ──┐
+fixtures/ ──┤
+            ▼
+       runner.py ────► statsd (subprocess, niced, pinned core)
+            │                │
+            │                ▼
+            │         .stats.jsonl  (5 Hz telemetry)
+            │
+            ├──► hermes-agent (subprocess)
+            │         │
+            │         │ AIAgent loop with
+            │         │   TERMINAL_ENV=tmux_isolated
+            │         ▼
+            │    tmux session ──► .cast (asciinema v2, via pipe-pane)
+            │    (worktree, isolated $HOME, unshare --net)
+            │         │
+            │         └─► read_file, patch, search_files, ...
+            │
+            ├──► .trace.jsonl  (system/user/assistant/tool messages
+            │                    with token IDs + reasoning_content)
+            │
+            ▼
+       scoring.py ──► results/<run_id>/<task_id>.json
+            │
+            ├──► pass_rate, J/tok, thermal warnings, hardware table
+            ├──► export-sft ──► sft_dataset.jsonl  (with loss masks)
+            └──► render ──► .gif / .mp4  (with --overlay-stats HUD)
+```
 
 The core design decision: **isolation lives at the environment layer, not the
 harness layer.** Hermes already has a pluggable `BaseEnvironment` backend
@@ -465,9 +500,19 @@ jsonl on `t` (wall-clock) and computes, per task:
 - `peak_gpu_temp_c`, `peak_gpu_power_w`
 - `mean_gpu_power_w`, `mean_pkg_power_w`, `mean_host_power_w`
 - `throttled_seconds` (cumulative time any `throttle_reasons` was non-empty)
-- `joules_per_output_token`
-- `tok_per_watt` (output_tokens / mean_gpu_power_w / wall_s)
-- `mean_model_cpu_cores` (median of per-core util on busy cores)
+- `temp_auc_above_85c_seconds` (area under temperature curve above
+  85 °C, integrated over time — captures "how hot, for how long"
+  rather than just peak)
+- `gen_joules_per_output_token` = sum of `gpu_power_w * dt` over
+  *only* the assistant-message generation windows (between user
+  message and next tool call), divided by total output tokens.
+  This is the *honest* per-token efficiency.
+- `wall_joules_per_output_token` = whole-task total. This is the
+  task-level efficiency including tool-call idle time.
+- `tok_per_watt` = output_tokens / mean_gpu_power_w / wall_s
+- `mean_model_cpu_cores` (median per-core util on busy cores)
+- `pass_rate_by_difficulty` (aggregate of per-task `difficulty: 1|2|3`
+  from `task.yaml`)
 
 These get added to the per-task row and the per-model summary table. The
 CLI prints a "thermal warning" if a run sustained `>90 °C` for >30s or
@@ -634,7 +679,11 @@ Mode selection:
 {"role": "assistant", "content": null, "tool_calls": [
   {"id": "call_1", "type": "function",
    "function": {"name": "read_file",
-                "arguments": "{\"path\": \"src/calc.py\"}"}}], "ts": ...}
+                "arguments": "{\"path\": \"src/calc.py\"}"}}],
+ "prompt_token_ids": [123, 456, ...],         # for SFT loss-mask building
+ "completion_token_ids": [789, 012, ...],     # assistant tokens only
+ "reasoning_content": "The user wants me to...",  # CoT, if model emits it
+ "ts": ...}
 {"role": "tool", "tool_call_id": "call_1",
  "name": "read_file",
  "content": "{\"success\": true, \"content\": \"...\"}", "ts": ...}
@@ -642,7 +691,13 @@ Mode selection:
 ```
 
 This is the **exact wire format** `AIAgent.run_conversation()` produces, so
-traces are SFT-ready with zero transformation.
+traces are SFT-ready with zero transformation. The `prompt_token_ids` /
+`completion_token_ids` fields (added via the `print_jsonl_plugin.py` from
+Q9) are what make `export-sft` produce proper loss-masked training data —
+without them, SFT training would compute loss on user tokens too, which
+degrades model quality. The `reasoning_content` field preserves chain-of-
+thought for models that emit it (Qwen3, DeepSeek) and is included in
+`export-sft` by default (`--include-reasoning`).
 
 ---
 
@@ -843,7 +898,11 @@ python -m hermesbench stats traces/qwen_*.stats.jsonl --plot     # save temp/pow
 python -m hermesbench export-sft \
     --in traces/ \
     --out sft_dataset.jsonl \
-    --format openai
+    --format openai \
+    --include pass,fail        # quality filter: include failed runs as negatives
+    --negative-ratio 0.3       # 30% failed / 70% passed
+    --include-reasoning        # preserve CoT for Qwen3/DeepSeek-style models
+    --loss-mask completion     # score only assistant tokens, not user/tool
 
 # Render a .cast to GIF/MP4 for X (with optional stats overlay)
 python -m hermesbench render traces/qwen_t03_*.cast --format gif --out tweet.gif
@@ -995,6 +1054,20 @@ python -m hermesbench play traces/qwen_t03_*.cast
 - [ ] A thermal warning is printed when `peak_gpu_temp_c > 90` or
       `throttled_seconds > 5` (verified with a regression test that
       feeds synthetic stats and checks the warning logic)
+- [ ] Sampling controls (`temperature`, `top_p`, `top_k`, `seed`)
+      injected into hermes-agent's `gen_kwargs` at task start;
+      verified by `test_sampling_injection.py` (same task, two
+      runs → byte-identical assistant token IDs in trace)
+- [ ] Per-task resource limits enforced via `ulimit`; verified by
+      a task that intentionally exceeds `max_file_size_mb` and
+      gets killed with `meta.json: {status: "RESOURCE_EXCEEDED"}`
+- [ ] Difficulty tiers reported: `pass_rate_by_difficulty: {1: 95%,
+      2: 70%, 3: 25%}` for a baseline 7B model; if any tier is 0%
+      or 100%, the tasks are miscalibrated and the v0.1 gate fails
+- [ ] hermes-agent git SHA recorded in every `meta.json`; resume
+      refuses cross-SHA continuation by default
+- [ ] SFT export uses loss masks (only completion tokens scored);
+      verified by `test_export_sft_loss_masks.py`
 
 ---
 
@@ -1126,7 +1199,27 @@ actual surface and what canonical benchmarks do.
       fn: verify
       timeout_seconds: 30
     tags: ["patch", "ambiguous-match", "code-edit"]
+    sampling:                    # injected into hermes-agent's gen_kwargs
+      temperature: 0.0           # deterministic by default
+      top_p: 1.0
+      top_k: -1
+      seed: 42                   # increment by run_index in N=3 mode
+    resource_limits:             # enforced via ulimit in the tmux session
+      max_memory_mb: 4096
+      max_processes: 256
+      max_file_size_mb: 1024
+      max_worktree_mb: 2048      # over-quota worktree is rm-rf'd by runner
+    difficulty: 2                # 1=easy, 2=medium, 3=hard
+                              # scoring reports pass_rate_by_difficulty
     ```
+
+**Note on sampling determinism (G2.1):** Even at `temperature=0`,
+local model servers (llama.cpp, vLLM, ollama) can produce different
+outputs across runs because of `top_k`, `top_p`, and `min_p` defaults.
+The `sampling:` block above is *injected* into hermes-agent's
+`gen_kwargs` at task start, ensuring every run of a task uses the
+same sampler state. N=3 mode increments `seed` by `run_index` (0, 1, 2)
+so the 3 runs are independent.
 21. **Artifact naming convention.** `<run_id>_<task.id>_{trace.jsonl,cast,stats.jsonl}`
     where `run_id = "<model_slug>_<YYYYMMDD-HHMMSS>_<8char-uuid>"`. Example:
     `qwen2.5-coder-7b-instruct-q4_k_m_20260602-181530_a1b2c3d4_t03_patch_edit-t02_patch_ambiguous_trace.jsonl`.
@@ -1252,6 +1345,63 @@ actual surface and what canonical benchmarks do.
     trace. Mark the run with `meta.json: {status: "TIMEOUT", partial:
     true}`. Partial trace is still useful for SFT — first N turns are
     often correct.
+
+### Round-2 questions from the rubric (Q43-Q51)
+
+The plan was self-graded at 78/100. These questions are the
+highest-leverage fixes from the rubric. Each was prioritized by
+"how much does closing this gap move the grade."
+
+43. **Sampling determinism (G2.1).** Every `task.yaml` declares a
+    `sampling:` block (`temperature`, `top_p`, `top_k`, `seed`).
+    The runner injects these into hermes-agent's `gen_kwargs` at
+    task start so every run of a task uses the same sampler state.
+    N=3 mode increments `seed` by `run_index` (0, 1, 2).
+    **Default:** `temperature: 0.0, top_p: 1.0, top_k: -1, seed: 42`.
+44. **Joules-per-token split (G4.1).** Two distinct metrics:
+    `gen_joules_per_output_token` (sum of `gpu_power_w * dt` over
+    *only* the assistant-generation windows, divided by total output
+    tokens) and `wall_joules_per_output_token` (whole-task total).
+    The first is honest model efficiency; the second includes
+    tool-call idle time. Both are reported.
+45. **Token IDs in trace (G5.1).** The `print_jsonl_plugin.py`
+    (Q9) emits `prompt_token_ids` and `completion_token_ids` per
+    assistant message. `export-sft` uses these to build proper
+    loss masks — score only completion tokens, not user/tool.
+    Without this, SFT degrades model quality.
+46. **Reasoning content preserved (G5.3).** `reasoning_content`
+    is a top-level field on assistant messages, preserved as-is
+    in the jsonl trace. `export-sft --include-reasoning` is the
+    default (Qwen3 / DeepSeek-style chain-of-thought models
+    train better with it included).
+47. **SFT quality filter (G5.2).** `export-sft --include
+    pass,fail --negative-ratio 0.3` default. 30% negative
+    examples improve model calibration per SFT literature.
+    `--include pass` for positive-only SFT.
+48. **Per-task resource limits (G6.1).** `task.yaml` declares
+    `resource_limits:` block (`max_memory_mb`, `max_processes`,
+    `max_file_size_mb`, `max_worktree_mb`). Enforced via
+    `ulimit` shell builtins in the tmux session init. The
+    `max_worktree_mb` watchdog polls `du -sb` every 5s in
+    statsd; over-quota worktree is `rm -rf`'d by the runner.
+49. **Difficulty tiers (G3.1).** Every `task.yaml` declares
+    `difficulty: 1|2|3`. Scoring reports `pass_rate_by_difficulty`
+    per model. Phase 7 baseline runs verify monotonic improvement
+    on difficulty-1 and flat-or-declining on difficulty-3 —
+    otherwise the tasks are miscalibrated and the suite is
+    rejected at the v0.1 gate.
+50. **Hermes SHA pinning (G1.2).** `meta.json` records the
+    hermes-agent git SHA used for the run. `--resume` refuses
+    to continue a run with a different SHA unless
+    `--allow-hermes-drift` is passed. CI is pinned to a
+    hermes-agent tag (`v0.X.Y-hermesbench`), not `main`.
+51. **Thermal-state-aware comparison (G2.2).** `score` and
+    `merge` subcommands check whether compared runs have similar
+    thermal state (`throttled_seconds` and `peak_temp_c` within
+    20%). If not, they print "⚠ thermal state differs by N%,
+    comparison may be misleading" unless
+    `--allow-thermal-compare` is passed. Numbers stay; the
+    warning is advisory (matches Q19 philosophy).
 
 ---
 
