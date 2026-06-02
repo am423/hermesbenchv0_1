@@ -65,12 +65,13 @@ turns so they finish in 2-15 min on a 7B model.
 
 | Principle | Decision |
 |---|---|
-| **Simple** | Single Python entry point, no Docker, no orchestrator. Runtime deps: `pyyaml`, `pyte` (for cast capture). Build deps: `agg` binary for GIF render. |
+| **Simple** | Single Python entry point, no Docker, no orchestrator. Runtime deps: `pyyaml`, `pyte` (cast capture), `psutil` (CPU/RAM/process), `pynvml` (NVIDIA GPU), `py-cpuinfo` (CPU model). Build deps: `agg` binary (GIF), `ffmpeg` (MP4). |
 | **Reproducible** | Tasks ship a deterministic input fixture (committed to repo). Same input → same expected output. Network-disabled by default. |
 | **Hermes-shaped** | Tasks are run via the real `AIAgent`, spawned as a subprocess, with `TERMINAL_ENV=tmux_isolated` so the model sees real tool schemas, real error envelopes, real conversation flow. No in-process wrapping. |
 | **Isolated** | Each task gets a fresh `tmux` session, a fresh worktree, and an isolated `$HOME`. Network is `unshare --net` by default. Cleanup is signal-safe. |
 | **Trace-capturing** | Every run writes `traces/<model>_<task>_<timestamp>.jsonl` with one line per message in the exact format the harness produces. |
 | **X-shareable** | Every task also produces a `.cast` file (asciinema v2 format) of the model's terminal session, captured via `tmux pipe-pane` from the moment the task starts to cleanup. Render to GIF/MP4 with one command. |
+| **Stats-capturing** | Every task also produces a `.stats.jsonl` sibling with hardware telemetry (GPU temp/power/util, CPU temp/power/util, RAM, NVMe, host power). Sampled at 5 Hz, zero benchmark interference. Surfaced in scoring and in the `.cast` overlay. |
 | **SFT-ready** | Each trace is a complete conversation (`system → user → assistant(tool_calls) → tool → ... → assistant(content)`). We can slice it into `(prompt, completion)` pairs directly. |
 | **Scored** | Each task has a deterministic verifier. No LLM-as-judge in v0.1. |
 | **Fast feedback** | Per-task wall-clock + token count printed. Per-model summary table. |
@@ -141,6 +142,20 @@ hermesbenchv0_1/
 │   ├── hermes_invocation.py    # spawns `python -m hermes_agent --quiet` per task
 │   ├── scoring.py              # deterministic verifiers + metric aggregation
 │   ├── trace.py                # jsonl trace recorder
+│   ├── statsd/                 # system statistics collector (§3.1b)
+│   │   ├── __init__.py
+│   │   ├── __main__.py         # `python -m hermesbench.statsd ...`
+│   │   ├── collector.py        # sampling loop
+│   │   ├── pinning.py          # core-pick + nice/ionice
+│   │   └── sources/
+│   │       ├── cpu.py
+│   │       ├── gpu_nvidia.py
+│   │       ├── gpu_amd.py
+│   │       ├── gpu_intel.py
+│   │       ├── memory.py
+│   │       ├── nvme.py
+│   │       ├── host_power.py
+│   │       └── process.py
 │   └── tasks/
 │       ├── __init__.py         # task registry
 │       ├── _schema.py          # TaskSpec dataclass + validator
@@ -342,50 +357,244 @@ def test_recorder_roundtrip():
         assert gif.stat().st_size > 1000
 ```
 
+### 3.1b System statistics collector (always-on, zero interference)
+
+Every task run also produces a `.stats.jsonl` sibling to the `.cast`.
+This is the "is the model just slow, or is it throttling?" data — and
+it's also what makes benchmark numbers defensible across runs (different
+ambient temp, different cool-down time, different background load all
+show up here).
+
+**What we collect (per sample, 5 Hz default, configurable to 1-20 Hz):**
+
+| Group | Source | Fields |
+|---|---|---|
+| **CPU package** | `psutil` + `/sys/class/thermal/k10temp` + `turbostat` if root | freq (MHz per core), util %, temp °C, package power W (via RAPL MSR when available, else `powertop -i` estimate) |
+| **CPU per-core** | `psutil.cpu_percent(percpu=True)` | util % per logical core (so we can see if llama.cpp is using all cores or just a few) |
+| **GPU (NVIDIA)** | `nvidia-smi --query-gpu=...` via `pynvml` | index, name, util.gpu %, util.mem %, temp °C, power.draw W, power.limit W, clocks.gr MHz, clocks.mem MHz, mem.used MiB, mem.total MiB, fan %, pstate, throttled reasons |
+| **GPU (AMD/Intel)** | `/sys/class/drm/card*/device/hwmon/hwmon*/{temp1_input,power1_average,power1_cap,gt_cur_freq_mhz}` + `intel_gpu_top`/`radeontop` when available | temp °C, package power W, freq MHz, util % |
+| **RAM** | `psutil.virtual_memory()` | used MiB, total MiB, swap used, dirty/writeback pages |
+| **VRAM (per GPU)** | `pynvml` / `amdgpu` driver | same as GPU memory fields |
+| **NVMe** | `/sys/class/hwmon/hwmon*/temp1_input` filtered to `nvme` driver | temp °C, read/write IOPS, MB/s (from `/proc/diskstats` deltas) |
+| **Host power** | `ipmi-dcmi` (BMC) if available, else `turbostat --Summary` package power, else RAPL MSR | total system W |
+| **Process** | `psutil` for the model's PID + child PIDs (from `pgrep -P` walk) | RSS, VMS, %CPU, %MEM, num threads, num FDs, GPU mem handle |
+| **Wall state** | `time.time()` | monotonic clock, task elapsed, task wall-clock |
+
+**Why this granularity matters for benchmarking local models:**
+
+- **Power wall detection.** An RTX 3090 at 350 W cap that sustains 95 °C
+  will throttle to ~280 W after 60s. A 7B model that runs at 50 tok/s
+  for 30s and 35 tok/s for the next 60s is not "slower," it's *throttled*.
+  Without `temp` + `power.draw` in the trace, you'd mis-score the model.
+- **Token/Joule efficiency.** Local-model users care about
+  performance-per-watt (laptop, edge, multi-GPU box). The benchmark
+  computes `joules_per_token = mean(power.draw_W) * wall_s /
+  output_tokens` and reports it per task and per category. A 7B at
+  50 tok/s @ 200 W is 0.25 J/tok; the same model at 50 tok/s @ 350 W
+  is 0.43 J/tok — the second is "worse" in a way a pure speed score hides.
+- **Throttle regression detection.** A model upgrade that raises power
+  draw and triggers throttling looks like a "regression" in raw tok/s;
+  with stats we see it's a thermal issue and can advise "undervolt,
+  or cap power to 280 W."
+- **Cross-run reproducibility.** Same model, same task, two days apart:
+  if the second run is 8% slower, was it the model? The kernel? The
+  ambient temperature? Stats answers that.
+
+**Collector design (no interference, by construction):**
+
+- **Separate process.** `statsd` is `subprocess.Popen(['python3',
+  '-m', 'hermesbench.statsd', '--out', '$stats_path', '--hz', '5'])`
+  launched in parallel with hermes. It is *not* a thread, *not* in the
+  hermes process — that would burn the very CPU cycles we're trying to
+  measure.
+- **Process priority lowered** via `os.nice(19)` + `ionice(IDLE)` on
+  Linux so it never preempts the model.
+- **Pinned to a single core** that the model is not using. We detect
+  the model's process tree first, then choose a sibling core with the
+  lowest current util. Falls back to a non-pinned collector if the
+  model saturates every core (rare for inference but possible).
+- **No subprocess-per-sample.** `pynvml` is used instead of
+  `nvidia-smi` per sample (a fresh `nvidia-smi` invocation takes
+  ~30ms — at 5 Hz that's 15% of one core just for stats). `pynvml`
+  reads NVML directly in-process, no fork. Same trick for AMD:
+  `amdgpu` sysfs files are read directly, no subprocess.
+- **One line per sample in `.stats.jsonl`.** Schema:
+  ```json
+  {"t": 1700000123.456, "elapsed_s": 12.3,
+   "cpu": {"pkg_temp_c": 67.2, "pkg_power_w": 142.0, "util_pct": 412.0,
+           "per_core_util": [98,97,95,99,96,98,97,99, ...]},
+   "gpu": [{"idx": 0, "name": "RTX 3090", "util_pct": 99, "mem_util_pct": 45,
+            "temp_c": 78.0, "power_w": 318.5, "power_limit_w": 350.0,
+            "clocks_gr_mhz": 1950, "clocks_mem_mhz": 9500,
+            "vram_used_mib": 18234, "vram_total_mib": 24576,
+            "fan_pct": 65, "pstate": "P0",
+            "throttle_reasons": ["thermal_slowdown"]}],
+   "ram": {"used_mib": 22100, "total_mib": 64200, "swap_mib": 0},
+   "nvme": {"temp_c": 42, "read_mbs": 1.2, "write_mbs": 0.0},
+   "host_power_w": 612.0,
+   "model_process": {"pid": 12345, "rss_mib": 18900, "threads": 24,
+                     "cpu_pct": 380.0, "gpu_mem_mib": 18200}}
+  ```
+
+**Layout addition:**
+
+```
+hermesbench/
+├── statsd/
+│   ├── __init__.py
+│   ├── __main__.py             # `python -m hermesbench.statsd ...`
+│   ├── collector.py            # main sampling loop, 5 Hz
+│   ├── sources/
+│   │   ├── __init__.py
+│   │   ├── cpu.py              # psutil + k10temp + turbostat
+│   │   ├── gpu_nvidia.py       # pynvml (in-process, no fork)
+│   │   ├── gpu_amd.py          # amdgpu sysfs direct read
+│   │   ├── gpu_intel.py        # i915/xe sysfs direct read
+│   │   ├── memory.py           # psutil.virtual_memory
+│   │   ├── nvme.py             # hwmon nvme + /proc/diskstats
+│   │   ├── host_power.py       # ipmi-dcmi / RAPL MSR / turbostat
+│   │   └── process.py          # model process tree RSS/threads/FDs
+│   └── pinning.py              # pick a quiet core, nice/ionice the collector
+```
+
+**How it integrates with scoring:**
+
+The scoring pipeline (`scoring.py`) joins `.stats.jsonl` with the trace
+jsonl on `t` (wall-clock) and computes, per task:
+
+- `peak_gpu_temp_c`, `peak_gpu_power_w`
+- `mean_gpu_power_w`, `mean_pkg_power_w`, `mean_host_power_w`
+- `throttled_seconds` (cumulative time any `throttle_reasons` was non-empty)
+- `joules_per_output_token`
+- `tok_per_watt` (output_tokens / mean_gpu_power_w / wall_s)
+- `mean_model_cpu_cores` (median of per-core util on busy cores)
+
+These get added to the per-task row and the per-model summary table. The
+CLI prints a "thermal warning" if a run sustained `>90 °C` for >30s or
+hit a `throttle_reasons` flag for >5s, so a user immediately knows if
+their numbers are fair.
+
+**How it integrates with the `.cast` overlay:**
+
+`render` adds a small live HUD strip at the bottom of the GIF/MP4 when
+the source is a paired `.stats.jsonl`:
+
+```
+[t=12s] GPU 78°C/318W tok/s: 49.2  ⚠ throttle: thermal_slowdown
+[t=14s] GPU 79°C/322W tok/s: 47.1  ⚠ throttle: thermal_slowdown
+...
+```
+
+The HUD is *rendered from the .stats.jsonl*, not parsed from the
+terminal — it works even if the model is running headless tools that
+print nothing. This is what makes the X posts "complete" — viewers see
+both the model's actions and the hardware doing the work.
+
+**X-ready visualization (pre-baked):**
+
+`render` adds `--overlay-stats` which composes a 4-line HUD bottom strip:
+```
+hermesbench v0.1  |  qwen2.5-coder-7b  |  t03_patch_ambiguous  |  PASS
+GPU  78°C  318W  49.2 tok/s  |  CPU 67°C 142W  |  RAM 22.1/64.2 GB  |  J/tok 0.42
+```
+
+Renders cleanly at 1080p and stays legible at X's 1080×auto downscale.
+
+**Calibration / smoke test:**
+
+```python
+def test_statsd_runs():
+    """statsd should sample for 5s and produce a valid .stats.jsonl."""
+    with tempfile.TemporaryDirectory() as d:
+        stats = Path(d) / "x.stats.jsonl"
+        proc = subprocess.Popen(["python", "-m", "hermesbench.statsd",
+                                 "--out", str(stats), "--hz", "5"])
+        time.sleep(5.0)
+        proc.terminate(); proc.wait(timeout=5)
+        lines = [json.loads(l) for l in stats.read_text().splitlines() if l]
+        assert 20 <= len(lines) <= 30, f"expected ~25 samples, got {len(lines)}"
+        for sample in lines[:3]:
+            assert "t" in sample and "cpu" in sample
+            assert "gpu" in sample  # may be empty list if no GPU
+```
+
+**Optional integration with `intel_gpu_top`/`nvidia-smi dmon` (v0.2):**
+
+For deep dives, `render --with-extra-overlay` can run a *second*
+subprocess collector at 1 Hz that captures `nvidia-smi dmon` /
+`intel_gpu_top -l -s 100` output and overlays per-SM/EFM utilization.
+This is heavy and excluded from the default path.
+
 ### 3.2 The hermes-agent invocation
 
 The benchmark runner does **not** import `AIAgent` as a library. Instead it
-**spawns hermes-agent as a subprocess per task**:
+**spawns hermes-agent as a subprocess per task** plus a parallel
+**statsd subprocess**:
 
 ```python
 # hermesbench/hermes_invocation.py (sketch)
-def run_task(task: TaskSpec, model: str, base_url: str) -> Path:
+def run_task(task: TaskSpec, model: str, base_url: str) -> TaskResult:
     worktree = worktree_setup(task)
     session_name = f"hermesbench-{task.id}-{uuid4().hex[:8]}"
     isolated_home = mkdtemp(prefix="hermesbench-home-")
+    trace_path = worktree / f"trace-{task.id}.jsonl"
+    cast_path  = worktree / f"trace-{task.id}.cast"
+    stats_path = worktree / f"trace-{task.id}.stats.jsonl"
 
-    # Start tmux session with isolated env
+    # Start tmux session with isolated env (records .cast via pipe-pane)
     env_overrides = {
-        "TERMINAL_ENV": "tmux_isolated",       # our new backend
+        "TERMINAL_ENV": "tmux_isolated",
         "HERMES_TMUX_SESSION": session_name,
         "HERMES_TMUX_WORKTREE": str(worktree),
         "HERMES_TMUX_HOME": str(isolated_home),
+        "HERMES_TMUX_CAST_PATH": str(cast_path),   # recorder.py reads this
         "HERMES_TMUX_NET": "off" if task.isolated_network else "on",
         "OPENAI_BASE_URL": base_url,
         "OPENAI_MODEL": model,
-        "HERMES_QUIET": "1",                   # no TUI noise
-        "HERMES_SAVE_TRAJECTORY": "1",         # so hermes writes its own session
-        "HERMES_TRAJECTORY_PATH": str(worktree / ".hermes-traj.jsonl"),
+        "HERMES_QUIET": "1",
+        "HERMES_SAVE_TRAJECTORY": "1",
+        "HERMES_TRAJECTORY_PATH": str(trace_path),
     }
 
-    # Spawn hermes-agent in a way that streams all messages to our trace
+    # Launch statsd FIRST so we capture warmup state too
+    statsd = subprocess.Popen(
+        ["python3", "-m", "hermesbench.statsd",
+         "--out", str(stats_path), "--hz", "5",
+         "--model-name", model],
+        # statsd auto-nices itself + pins to a quiet core
+    )
+
+    # Spawn hermes-agent
     proc = subprocess.Popen(
         ["python", "-m", "hermes_agent", "--print-mode", "jsonl", "--no-tui"],
         cwd=worktree, env={**os.environ, **env_overrides},
         stdout=PIPE, stderr=PIPE, text=True,
     )
-    # Feed the task prompt via stdin (hermes reads it on first turn)
     proc.stdin.write(task.prompt + "\n")
     proc.stdin.flush()
 
-    # Stream every line of hermes's jsonl output into our trace file
-    trace_path = worktree / f"trace-{task.id}.jsonl"
     with trace_path.open("w") as f:
         for line in proc.stdout:
             f.write(line)
     proc.wait(timeout=task.timeout_seconds)
-    return trace_path
+
+    # Stop statsd AFTER hermes exits (so we capture clean shutdown)
+    statsd.terminate(); statsd.wait(timeout=5)
+
+    return TaskResult(trace=trace_path, cast=cast_path, stats=stats_path)
 ```
+
+Key sequencing notes:
+- **statsd starts *before* hermes** so we capture warmup state (model
+  loading into VRAM, GPU clocks spinning up). Without this, the first
+  10-20s of the run is missing from the stats trace and the
+  `joules_per_output_token` calculation is biased high.
+- **statsd is stopped *after* hermes exits** so we capture the model's
+  clean shutdown (memory release, GPU clock downclock). Useful for
+  detecting "model didn't actually release VRAM" bugs.
+- **All three artifacts (`trace.jsonl`, `cast`, `stats.jsonl`) live
+  in the same `worktree/`** so they're zipped/deleted together. No
+  cross-reference pain.
 
 The `--print-mode jsonl` flag is the only upstream change we ask for in
 `hermes-agent`: it makes hermes print every message it sends/receives
@@ -550,18 +759,40 @@ Per-task score = `verifier.py` returns `passed: bool`. Aggregate:
   next move within 2 turns (measures error-recovery skill)
 - **Format compliance** = % of tool calls with valid JSON `arguments` matching
   the schema (no extra/missing keys, right types)
+- **Hardware score** (new — derived from `.stats.jsonl`):
+  - `mean_gpu_power_w`, `peak_gpu_power_w`, `mean_gpu_temp_c`, `peak_gpu_temp_c`
+  - `mean_cpu_power_w`, `mean_cpu_temp_c`
+  - `mean_host_power_w`
+  - `throttled_seconds` (cumulative time any `throttle_reasons` flag was set)
+  - `joules_per_output_token` (energy per generated token)
+  - `tok_per_watt` (throughput per watt — primary efficiency metric)
+  - `mean_model_cpu_cores` (median per-core util — detects under-utilization)
 
 A single model produces a results row like:
 
 ```
 model: qwen2.5-coder-7b-instruct-q4_k_m
-pass_rate:        28/40 (70.0%)
-tool_efficiency:  median 6.1 calls/task
-token_efficiency:  14,200 tok/task avg
-wall_clock:       38.4 s/task avg
-recovery_rate:    81.2%
-format_compliance: 99.4%
+pass_rate:          28/40 (70.0%)
+tool_efficiency:    median 6.1 calls/task
+token_efficiency:   14,200 tok/task avg
+wall_clock:         38.4 s/task avg
+recovery_rate:      81.2%
+format_compliance:  99.4%
+--- hardware ---
+gpu:                RTX 3090  mean 295W / peak 348W  mean 76°C / peak 84°C
+cpu:                Ryzen 9 7950X  mean 138W  mean 64°C
+host_power:         mean 612W
+joules_per_tok:     0.42
+tok_per_watt:       119
+throttled_seconds:  0.0
+mean_model_cores:   12.3 / 16 active
+⚠ thermal:          none (clean run)
 ```
+
+If `throttled_seconds > 5` or `peak_gpu_temp_c > 90`, the CLI prints a
+**`⚠ THERMAL WARNING`** banner above the row with the recommendation
+("undervolt", "cap power to 280W", "improve case airflow"). Numbers stay
+in the row — the warning is advisory, not a deduction.
 
 ### Verifier pattern
 
@@ -603,17 +834,23 @@ python -m hermesbench run --model ... --all
 # Re-score from existing traces (no re-run)
 python -m hermesbench score traces/qwen*.jsonl
 
+# Show hardware stats summary for a run
+python -m hermesbench stats traces/qwen_t03_*.stats.jsonl
+python -m hermesbench stats traces/qwen_*.stats.jsonl --summary  # per-task table
+python -m hermesbench stats traces/qwen_*.stats.jsonl --plot     # save temp/power plot
+
 # Export traces as SFT jsonl (one completion per line)
 python -m hermesbench export-sft \
     --in traces/ \
     --out sft_dataset.jsonl \
     --format openai
 
-# Render a .cast to GIF/MP4 for X
+# Render a .cast to GIF/MP4 for X (with optional stats overlay)
 python -m hermesbench render traces/qwen_t03_*.cast --format gif --out tweet.gif
 python -m hermesbench render traces/qwen_t03_*.cast --format mp4 \
     --add-caption "qwen2.5-coder-7b — t03_patch_ambiguous — ✅ PASS" \
-    --watermark "hermesbench v0.1"
+    --watermark "hermesbench v0.1" \
+    --overlay-stats ../traces/qwen_t03_*.stats.jsonl
 
 # Concat multiple task casts into one reel (great for "5 tasks, 1 tweet")
 python -m hermesbench render-reel traces/qwen_*.cast --format gif --out reel.gif
@@ -627,16 +864,22 @@ python -m hermesbench play traces/qwen_t03_*.cast
 ## 7. Implementation phases
 
 ### Phase 1 — Skeleton + `TmuxIsolatedEnvironment` backend (Day 1-3)
-- [ ] `pyproject.toml` + `hermesbench/` package skeleton (deps: `pyyaml`, `pyte`)
+- [ ] `pyproject.toml` + `hermesbench/` package skeleton
+      (deps: `pyyaml`, `pyte`, `psutil`, `pynvml`, `py-cpuinfo`)
 - [ ] `backend/tmux_isolated.py` — first cut: `init_session`, `_run_bash`, `cleanup`
 - [ ] `backend/recorder.py` — `pyte`-based pipe-pane sink that writes
       asciinema v2 `.cast` files (80 LOC + roundtrip test)
 - [ ] Wire `tmux pipe-pane` into `init_session()` so every task
       records automatically
 - [ ] `backend/worktree.py` — `worktree_setup(task)` copies fixtures, sets up isolated `$HOME`
-- [ ] `runner.py` — task lifecycle: setup → spawn hermes → trace → teardown
+- [ ] `statsd/collector.py` + `sources/{cpu,gpu_nvidia,gpu_amd,gpu_intel,memory,nvme,host_power,process}.py`
+- [ ] `statsd/pinning.py` — detect model's process tree, pick a quiet core,
+      `os.nice(19)` + `ionice(IDLE)`, `taskset -c $quiet_core` on Linux
+- [ ] `statsd/__main__.py` — CLI: `python -m hermesbench.statsd --out ... --hz 5`
+- [ ] `runner.py` — task lifecycle: statsd first → spawn hermes → trace → teardown
 - [ ] Manual smoke test: 1 task against a real model, confirm tmux session is
       created, model runs, **`.cast` is produced and re-playable**,
+      **`.stats.jsonl` is produced and has all 7 metric groups**,
       tmux is killed, worktree is removed
 - [ ] Add the `TERMINAL_ENV=tmux_isolated` branch to hermes-agent's
       `_create_environment()` factory (1-line PR to `tools/terminal_tool.py`)
@@ -663,15 +906,23 @@ python -m hermesbench play traces/qwen_t03_*.cast
       compared head-to-head with subprocess mode
 
 ### Phase 5 — Scoring + reporting (Day 12)
-- [ ] `scoring.py` computes all 6 metrics
+- [ ] `scoring.py` computes all 6 metrics + the 9 hardware metrics
+- [ ] `scoring.py` implements the `joules_per_output_token` and
+      `tok_per_watt` derivations (joins trace.jsonl token counts with
+      stats.jsonl power samples on `t`)
+- [ ] `scoring.py` implements the thermal-warning heuristic
+      (`peak_gpu_temp_c > 90` OR `throttled_seconds > 5` → warn)
 - [ ] `results/<model>_<date>.json` per-run aggregate
-- [ ] Pretty-print summary table
-- [ ] `cli.py` `render` subcommand: `.cast` → `.gif` / `.mp4` via `agg` + `ffmpeg`
+- [ ] `cli.py` `stats` subcommand: per-task summary, `--summary` table,
+      `--plot` matplotlib temp/power-over-time chart (saves PNG)
+- [ ] `cli.py` `render` subcommand: `.cast` → `.gif` / `.mp4` via `agg` + `ffmpeg`,
+      with `--overlay-stats` HUD strip
 - [ ] `cli.py` `render-reel` subcommand: concat multiple casts
 - [ ] `cli.py` `play` subcommand: `asciinema play` wrapper for local preview
 - [ ] `examples/` directory seeded with 3 reference GIFs (one per
-      difficulty tier: easy/medium/hard) so README screenshots stay
-      accurate when the suite evolves
+      difficulty tier: easy/medium/hard) and 3 reference stats plots
+      (one clean run, one thermal-throttled run, one CPU-bound run) so
+      README screenshots stay accurate when the suite evolves
 
 ### Phase 6 — Export to SFT format (Day 13)
 - [ ] `export-sft` command: traces → OpenAI / ShareGPT / Hermes message formats
@@ -679,10 +930,17 @@ python -m hermesbench play traces/qwen_t03_*.cast
 
 ### Phase 7 — Initial baseline runs (Day 14-15)
 - [ ] Run against 3 representative local models: a small (3-4B), a medium (7-8B), a large (32-70B)
-- [ ] Publish `results/baseline_<date>.md` in the repo
+- [ ] Publish `results/baseline_<date>.md` in the repo with per-model
+      pass rates, token efficiency, **and the full hardware table
+      (mean/peak power, mean/peak temp, J/tok, tok/W, throttled_seconds)**
+- [ ] For each model, commit a 4-panel stats plot: GPU power-over-time,
+      GPU temp-over-time, CPU package power, RAM used — so reviewers
+      can see whether the run was clean or throttled at a glance
 - [ ] Commit traces (or a sample of them) so others can reproduce
 - [ ] Confirm: every task's tmux session was killed, every worktree was rm-rf'd
       (post-mortem script scans `/tmp` and `tmux ls` for leaks)
+- [ ] Confirm: every task's statsd was terminated cleanly
+      (no orphan `python -m hermesbench.statsd` processes in `ps aux`)
 
 ### Phase 8 — v0.1 release tag (Day 16)
 - [ ] README with quick-start, results table, "how to add a task" guide,
@@ -696,7 +954,7 @@ python -m hermesbench play traces/qwen_t03_*.cast
 
 ## 8. v0.2+ roadmap (out of scope for v0.1, listed for context)
 
-- **v0.2 — Multi-modal + longer horizon:** vision tasks (image Q&A), browser tasks (offline mock DOM), 60-100 turn projects
+- **v0.2 — Multi-modal + longer horizon:** vision tasks (image Q&A), browser tasks (offline mock DOM), 60-100 turn projects, **per-SM/EFM utilization via `nvidia-smi dmon` + `intel_gpu_top` extra overlay**, **ambient temperature via optional hwmon sensor**
 - **v0.3 — Adversarial:** prompt-injection resistance, ambiguous user prompts, broken-tool recovery
 - **v0.4 — Live net:** opt-in `network: required` flag, real `web_search`/`web_extract`
 - **v0.5 — Cross-session:** tasks that span multiple `AIAgent` sessions with persistent memory
@@ -729,6 +987,14 @@ python -m hermesbench play traces/qwen_t03_*.cast
 - [ ] At least 3 example X-ready GIFs are committed to
       `examples/` so users can see what the output looks like before
       running their first task
+- [ ] Every task run produces a `.stats.jsonl` with all 7 metric
+      groups present (CPU, GPU, RAM, NVMe, host_power, model_process,
+      wall state) — verified by `test_statsd_runs` in CI
+- [ ] `joules_per_output_token` and `tok_per_watt` are populated
+      for every task where token count was available
+- [ ] A thermal warning is printed when `peak_gpu_temp_c > 90` or
+      `throttled_seconds > 5` (verified with a regression test that
+      feeds synthetic stats and checks the warning logic)
 
 ---
 
@@ -781,6 +1047,30 @@ python -m hermesbench play traces/qwen_t03_*.cast
 13. **Render server-side or via `agg` local?** `agg` is a single static
     binary, no server needed. **Decision: local render. CI uploads
     GIFs as PR artifacts.**
+14. **5 Hz vs 10 Hz stats sampling?** Higher = more disk + more
+    interference. **Decision: 5 Hz default, configurable 1-20 Hz via
+    `--hz`. 5 Hz captures thermal transients (RTX 3090 warm-up takes
+    ~20-30s) without drowning the disk.**
+15. **What if `pynvml` isn't installed?** Falls back to `nvidia-smi`
+    subprocess *per sample* but warns the user that it's eating ~15%
+    of one core. We refuse to ship v0.1 without `pynvml` available.
+    **Decision: hard dep, fail loud at install time.**
+16. **What if the model has no GPU (CPU-only run)?** `statsd` still
+    collects CPU/RAM/NVMe stats and the GPU section is an empty list.
+    Scoring falls back to CPU-only metrics (joules per tok on package
+    power). **Decision: GPU-less mode is fully supported.**
+17. **RAPL MSR access requires root.** If we're not root, package
+    power falls back to `turbostat` (also root) → `powertop` estimate
+    → omit the field. **Decision: degrade gracefully, never crash
+    the benchmark because of a stats source.**
+18. **Do we record ambient temperature?** It matters for cross-run
+    fairness but requires a USB sensor. **Decision: out of scope for
+    v0.1. v0.2: optional `--ambient-sensor` flag for users with a
+    supported hwmon device (e.g. `coretemp`-style external probe).**
+19. **Should thermal warnings *deduct* from the score?** No — they
+    flag, they don't penalize. The score is what the model achieved.
+    Thermal state is metadata for the user to interpret.
+    **Decision: advisory warnings only, no score deduction.**
 
 ---
 
@@ -796,3 +1086,11 @@ python -m hermesbench play traces/qwen_t03_*.cast
   `_create_environment()` in `tools/terminal_tool.py:1143`
 - Session data source: `~/.hermes/state.db` (SQLite, FTS5-indexed)
 - AIAgent loop contract: see `AGENTS.md` § "Agent Loop"
+- Stats sources verified on this host (Linux 7.0.0-15-generic):
+  - `/sys/class/hwmon/` — 8 devices including `nvme`, `k10temp` (CPU),
+    `amdgpu` (Intel Arc / AMD GPU), `spd5118` (RAM temp), `mt7921_phy0` (wifi)
+  - `nvidia-smi` available (RTX 3090, 24GB VRAM, 350W cap)
+  - `turbostat`, `script` (util-linux), `ffmpeg` all installed
+  - `psutil` 7.1.0, `asciinema`/`agg`/`chafa` to be added
+  - No `libtmux`, `pynvml`, `pyamdgpu` yet — to be installed via
+    `pip install pynvml pyte pyyaml psutil py-cpuinfo` in Phase 1
