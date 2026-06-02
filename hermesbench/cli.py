@@ -250,11 +250,15 @@ def score(paths: tuple[str, ...]) -> None:
         if not p.is_dir():
             console.print(f"[red]not a directory: {p}[/red]")
             continue
-        has_results = (p / "verifier_result.json").exists() or any(
-            (p / d / "verifier_result.json").exists() for d in p.iterdir() if d.is_dir()
-        )
-        if has_results:
-            summary = score_run(p, p)
+        # Detect whether `p` is a single run-dir or a single task-dir.
+        # A run-dir has subdirs each containing verifier_result.json.
+        # A task-dir contains verifier_result.json itself.
+        is_task_dir = (p / "verifier_result.json").exists()
+        if is_task_dir:
+            from hermesbench.scoring import score_run
+
+            parent = p.parent
+            summary = score_run(parent, parent)
             console.print(
                 f"[bold]{p.name}[/bold] pass_rate={summary['pass_rate']:.0%} "
                 f"({len(summary['tasks'])} tasks, "
@@ -262,8 +266,18 @@ def score(paths: tuple[str, ...]) -> None:
             )
             for w in summary["thermal_warnings"]:
                 console.print(f"  [yellow]⚠[/yellow] {w['task']}: {w['warning']}")
-        else:
-            console.print(f"[red]not a results dir: {p}[/red]")
+            continue
+        # Otherwise treat as a run-dir
+        from hermesbench.scoring import score_run
+
+        summary = score_run(p, p)
+        console.print(
+            f"[bold]{p.name}[/bold] pass_rate={summary['pass_rate']:.0%} "
+            f"({len(summary['tasks'])} tasks, "
+            f"{len(summary['thermal_warnings'])} thermal warnings)"
+        )
+        for w in summary["thermal_warnings"]:
+            console.print(f"  [yellow]⚠[/yellow] {w['task']}: {w['warning']}")
 
 
 @main.command()

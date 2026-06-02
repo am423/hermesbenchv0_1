@@ -1,0 +1,10 @@
+{
+  "task_id": "t03_patch_edit/t01_basic",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "ValueError not in patched file",
+  "details": {
+    "file": "\"\"\"A broken Python file that the model must fix.\"\"\"\nfrom __future__ import annotations\n\n\ndef divide(a: float, b: float) -> float:\n    # Bug: no zero-division check\n    return a / b\n"
+  }
+}

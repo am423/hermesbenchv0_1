@@ -61,14 +61,12 @@ def test_every_verifier_returns_verifierresult() -> None:
                 result = mod.verify(Path(d), [])
             except Exception as e:
                 pytest.fail(f"{vp}: verify() raised: {e}")
-            assert isinstance(result, VerifierResult), (
-                f"{vp}: verify() returned {type(result).__name__}, not VerifierResult"
-            )
-            # The verifier defines its own VerifierResult class (Q5:
-            # stdlib-only), so we check duck-typing not identity.
-            assert hasattr(result, "status") and hasattr(result, "score")
-            assert hasattr(result, "reason") and hasattr(result, "details")
-            assert isinstance(result.status, VerifierStatus)
+            # Each verifier defines its own VerifierResult class (Q5:
+            # stdlib-only, so they don't import ours). Use duck-typing.
+            assert hasattr(result, "status"), f"{vp}: result has no .status attr"
+            assert hasattr(result, "score"), f"{vp}: result has no .score attr"
+            assert hasattr(result, "reason"), f"{vp}: result has no .reason attr"
+            assert hasattr(result, "details"), f"{vp}: result has no .details attr"
             assert 0.0 <= result.score <= 1.0, f"{vp}: score {result.score} not in [0, 1]"
 
 

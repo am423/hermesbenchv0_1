@@ -1,0 +1,23 @@
+{
+  "run_id": "fake_20260602-152003_445f3583",
+  "model": "fake",
+  "model_slug": "fake",
+  "hermes_sha": "bb0619dbcea7a84fc3c33e027ba71a4033a08748",
+  "hermes_path": "/home/am/.hermes/hermes-agent",
+  "hermes_agent_version": "unknown",
+  "hermesbench_version": "0.1.0",
+  "started_at": 1780431603.0368834,
+  "finished_at": 1780431603.0869539,
+  "status": "completed",
+  "exit_code": 0,
+  "python_version": "3.14.4",
+  "platform": "Linux-7.0.0-15-generic-x86_64-with-glibc2.43",
+  "hostname": "am-B650M-Pro-RS-WiFi",
+  "warnings": [],
+  "env_overrides": {},
+  "worktree_root": "/home/am/projects/hermesbenchv0_1/traces/fake_20260602-152003_445f3583/t01_terminal_smoke/t01_echo/worktree",
+  "worktree_strategy": "persistent",
+  "total_tasks": 0,
+  "completed_tasks": 0,
+  "failed_tasks": 0
+}

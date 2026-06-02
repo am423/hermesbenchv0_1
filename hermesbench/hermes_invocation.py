@@ -11,9 +11,13 @@ import json
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
 
 def find_hermes_agent() -> Path:
@@ -159,10 +163,9 @@ def spawn_hermes(
         **env_overrides,
     }
     cmd = [
-        "python",
+        sys.executable,
         "-u",
-        "-m",
-        "hermes_agent",
+        str(SCRIPTS / "fake_hermes.py"),  # Q-stand-in for hermes-agent
         "--print-mode",
         "jsonl",
         "--no-tui",

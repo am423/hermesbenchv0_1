@@ -1,0 +1,8 @@
+{
+  "task_id": "t01_terminal_smoke/t01_echo",
+  "difficulty": 1,
+  "status": "VERIFIER_ERROR",
+  "score": 1.0,
+  "reason": "verifier returned VerifierResult, not VerifierResult",
+  "details": {}
+}

@@ -326,9 +326,9 @@ def _run_verifier(task: TaskSpec, worktree: Path, trace_path: Path) -> VerifierR
 
     Verifiers are stdlib-only modules exporting `verify(worktree, trace)`.
     """
+    import sys
+
     spec = task.verifier
-    task_dir = Path(task.id)
-    # task_dir might be 't03_patch_edit/t02_patch_ambiguous'
     parts = task.id.split("/")
     if len(parts) == 2:
         verifier_path = REPO / "tasks" / parts[0] / parts[1] / f"{spec.module}.py"
@@ -341,10 +341,14 @@ def _run_verifier(task: TaskSpec, worktree: Path, trace_path: Path) -> VerifierR
             reason=f"verifier not found: {verifier_path}",
         )
 
+    # Q-stand-in: register in sys.modules BEFORE exec_module so
+    # Python 3.14's dataclass introspection can find the module.
+    mod_name = f"hermesbench_verifier_{task.id.replace('/', '_').replace('-', '_')}"
     try:
-        mod_spec = importlib.util.spec_from_file_location("verifier_mod", verifier_path)
+        mod_spec = importlib.util.spec_from_file_location(mod_name, verifier_path)
         mod = importlib.util.module_from_spec(mod_spec)  # type: ignore[arg-type]
-        assert mod_spec is not None
+        sys.modules[mod_name] = mod
+        assert mod_spec is not None and mod_spec.loader is not None
         mod_spec.loader.exec_module(mod)  # type: ignore[union-attr]
         fn = getattr(mod, spec.fn)
     except Exception as e:
@@ -357,13 +361,29 @@ def _run_verifier(task: TaskSpec, worktree: Path, trace_path: Path) -> VerifierR
         from hermesbench.trace import read_trace
 
         trace = read_trace(trace_path) if trace_path.exists() else []
-        result: VerifierResult = fn(worktree, trace)
-        if not isinstance(result, VerifierResult):
+        result = fn(worktree, trace)
+        # Verifier defines its own VerifierResult (Q5: stdlib-only).
+        # Use duck-typing, not isinstance, since the classes are
+        # distinct.
+        if not hasattr(result, "status") or not hasattr(result, "score"):
             return VerifierResult(
                 status=VerifierStatus.VERIFIER_ERROR,
-                reason=f"verifier returned {type(result).__name__}, not VerifierResult",
+                reason=f"verifier returned {type(result).__name__}, missing status/score attrs",
             )
-        return result
+        # Coerce into our VerifierResult
+        try:
+            status = VerifierStatus(str(result.status))
+        except ValueError:
+            return VerifierResult(
+                status=VerifierStatus.VERIFIER_ERROR,
+                reason=f"verifier status {result.status!r} not a known VerifierStatus",
+            )
+        return VerifierResult(
+            status=status,
+            score=float(getattr(result, "score", 0.0)),
+            reason=str(getattr(result, "reason", "")),
+            details=dict(getattr(result, "details", {})),
+        )
     except Exception as e:
         return VerifierResult(
             status=VerifierStatus.VERIFIER_ERROR,

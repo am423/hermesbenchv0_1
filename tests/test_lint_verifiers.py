@@ -110,6 +110,19 @@ def test_no_verifier_imports_hermesbench() -> None:
     """Verifiers must be hermesbench-free (portable)."""
     for f in _iter_verifier_files():
         text = f.read_text()
-        assert "hermesbench" not in text, (
-            f"{f.relative_to(REPO)}: verifiers must not import hermesbench"
-        )
+        # Q5: verifiers can't import hermesbench because they must be
+        # hermesbench-free (portable + hermetically testable). But
+        # they CAN mention "hermesbench" in strings (e.g. a prompt
+        # they check for). So we look at actual import statements.
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not (stripped.startswith("import ") or stripped.startswith("from ")):
+                continue
+            # Allow: from __future__ import annotations
+            if "__future__" in stripped:
+                continue
+            # Anything else from `hermesbench` is a fail
+            if "hermesbench" in stripped:
+                pytest.fail(
+                    f"{f.relative_to(REPO)}: verifiers must not import hermesbench: {stripped!r}"
+                )
