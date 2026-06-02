@@ -1,6 +1,31 @@
-traces/
-results/
-__pycache__/
+# hermesbench v0.1 gitignore
+#
+# Commit policy (Q55, Q56):
+#   - trace.jsonl     -> committed (dogfooding requirement)
+#   - stats.jsonl     -> committed (hardware data is small + valuable)
+#   - .cast           -> gitignored (X-archive material only)
+#   - worktree/       -> gitignored (large, user-specific paths)
+#   - results/*.json  -> committed (verifier output, small)
+#   - results/worktree/ -> gitignored
+#
+# Local-only build artifacts:
 *.pyc
+__pycache__/
 .venv/
 *.egg-info/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright_cache/
+logs/
+
+# Per-task local-only artifacts
+# (committed selectively via `hermesbench archive` --include)
+traces/*.cast
+traces/*/worktree/
+results/*/worktree/
+
+# Secrets / local config
+.env
+.env.local

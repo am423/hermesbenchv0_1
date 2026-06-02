@@ -701,7 +701,7 @@ thought for models that emit it (Qwen3, DeepSeek) and is included in
 
 ---
 
-## 4. Task taxonomy (40 tasks in v0.1)
+## 4. Task taxonomy (43 tasks in v0.1)
 
 Each task is a directory with:
 - `task.yaml` — name, prompt, allowed_tools, max_turns, expected_artifacts
@@ -718,7 +718,7 @@ Each task is a directory with:
 | `t04_terminal_env` | Check an env var that does/doesn't exist | Reading error messages |
 | `t05_terminal_long` | Start a 5-second sleep, observe via `process` list, kill it | `terminal` + `process` handoff |
 
-### Category 2: `read_file` (5 tasks)
+### Category 2: `read_file` (6 tasks — added parallel-tool-calls per Q61)
 
 | ID | Task | Tests |
 |---|---|---|
@@ -727,6 +727,7 @@ Each task is a directory with:
 | `t03_read_paginated` | Read 500-line file in 3 chunks | Multi-call pagination |
 | `t04_read_missing` | Read non-existent file | Error envelope recovery |
 | `t05_read_nested` | Read deeply-nested path | Path quoting |
+| `t06_read_parallel` | "Show first 10 lines of a.py, b.py, c.py" | Verifier counts turns; reports `parallel_tool_call_rate` |
 
 ### Category 3: `patch` (5 tasks) — *the hardest, most failure-prone tool*
 
@@ -758,13 +759,15 @@ Each task is a directory with:
 | `t04_write_with_unicode` | Write file with non-ASCII content | Encoding |
 | `t05_write_path_create` | Write to a path whose parent dirs don't exist | Error recovery |
 
-### Category 6: `process` (3 tasks)
+### Category 6: `process` (5 tasks, promoted from 3 per Q60)
 
 | ID | Task | Tests |
 |---|---|---|
 | `t01_process_list` | List bg processes | `process(action="list")` |
 | `t02_process_kill` | Kill a leaked process | `process(action="kill")` |
 | `t03_process_poll` | Poll a running process for output | `process(action="poll")` |
+| `t04_process_pipeline` | Start a process, capture stdout, parse structured output | long-running, polling, output parsing |
+| `t05_process_zombie` | Detect and clean up a zombie process | process tree inspection |
 
 ### Category 7: `todo` (3 tasks)
 
@@ -774,13 +777,15 @@ Each task is a directory with:
 | `t02_todo_update` | Mark item in_progress, then completed | Status transitions |
 | `t03_todo_replan` | Insert a new todo mid-flight | `merge: true` semantics |
 
-### Category 8: `execute_code` (3 tasks)
+### Category 8: `execute_code` (5 tasks, promoted from 3 per Q60)
 
 | ID | Task | Tests |
 |---|---|---|
 | `t01_repl_math` | Compute a non-trivial result in Python | REPL state persistence |
 | `t02_repl_pandas` | Load a CSV, aggregate, return answer | Pandas correctness |
 | `t03_repl_debug` | Find a bug by running code incrementally | Multi-step REPL |
+| `t04_repl_datascience` | Train a small sklearn model, report accuracy | multi-step, dep install |
+| `t05_repl_stateful` | Build a small in-memory data structure, query it | REPL state survives multiple `execute_code` calls |
 
 ### Category 9: `web_search` / `web_extract` (3 tasks — **offline-mocked**)
 
@@ -799,6 +804,23 @@ These use a local mock server (`fixtures/web_corpus/`) — no live internet.
 | `t01_memory_save` | Save a fact | `memory(action="add")` |
 | `t02_memory_recall` | Recall across turns | Persistence check |
 | `t03_memory_avoid_dup` | Don't re-save a known fact | Dedup judgement |
+
+### Category 11: `error_recovery` (3 tasks — added per Q58)
+
+The highest-signal category for tool-using capability: can the
+model recover from a `success: false` envelope within 2 turns?
+
+| ID | Task | Tests |
+|---|---|---|
+| `t01_recovery_perms` | Fixture file is `chmod 000`; model must use `sudo` or work around | recovery within 2 turns |
+| `t02_recovery_ambiguous` | First `patch` returns "Did you mean..." with 3 candidate matches; model must use `read_file` to disambiguate | recovery within 2 turns |
+| `t03_recovery_transient` | First `terminal` call returns "Network is unreachable" (mock); model must retry with backoff | recovery within 2 turns |
+
+**Recovery metric (new):** `recovery_rate = (tasks recovered
+within 2 turns) / (tasks that hit a `success: false` envelope)`.
+Reported per category, per difficulty, per model. This is the
+single most predictive number for "will this model work in a
+real hermes session."
 
 ---
 
@@ -870,9 +892,21 @@ def verify(workdir: Path, trace: list[dict]) -> tuple[bool, dict]:
 ## 6. CLI
 
 ```bash
+# Pre-flight: are all deps and endpoints healthy?
+python -m hermesbench doctor
+python -m hermesbench doctor --json          # machine-readable
+
+# One-task end-to-end demo (Q70): starts a tiny llama.cpp server,
+# runs one task, prints a "you scored X" summary
+make demo
+
 # List tasks
 python -m hermesbench list
 python -m hermesbench list --category patch
+python -m hermesbench list --difficulty 1
+
+# Validate a task or set of tasks (parse, lint, resolve fixtures)
+python -m hermesbench validate tasks/
 
 # Run a single task against a model
 python -m hermesbench run \
@@ -883,11 +917,27 @@ python -m hermesbench run \
 # Run a full category
 python -m hermesbench run --model ... --category patch
 
-# Run the full 40-task suite
+# Run the full 43-task suite
 python -m hermesbench run --model ... --all
+
+# Dry-run: validate everything, spawn no hermes (Q72)
+python -m hermesbench run --all --dry-run
+
+# Resume a crashed run
+python -m hermesbench run --resume <run_id> --all
+
+# Run with N=3 sampling (default N=1)
+python -m hermesbench run --task t03_patch_edit/t02_patch_ambiguous --n-runs 3
 
 # Re-score from existing traces (no re-run)
 python -m hermesbench score traces/qwen*.jsonl
+python -m hermesbench score results/run1/ results/run2/ --thermal-compare
+
+# Merge results from parallel processes
+python -m hermesbench merge results/run1/ results/run2/ --out results/merged/
+
+# Archive a task's full artifacts to ~/.hermes/archives/
+python -m hermesbench archive --include t03_patch_edit/t02_patch_ambiguous
 
 # Show hardware stats summary for a run
 python -m hermesbench stats traces/qwen_t03_*.stats.jsonl
@@ -905,14 +955,16 @@ python -m hermesbench export-sft \
     --loss-mask completion     # score only assistant tokens, not user/tool
 
 # Render a .cast to GIF/MP4 for X (with optional stats overlay)
-python -m hermesbench render traces/qwen_t03_*.cast --format gif --out tweet.gif
+python -m hermesbench render --examples                      # print common invocations
+python -m hermesbench render --preset x-tweet traces/qwen_t03_*.cast
 python -m hermesbench render traces/qwen_t03_*.cast --format mp4 \
     --add-caption "qwen2.5-coder-7b — t03_patch_ambiguous — ✅ PASS" \
     --watermark "hermesbench v0.1" \
     --overlay-stats ../traces/qwen_t03_*.stats.jsonl
 
 # Concat multiple task casts into one reel (great for "5 tasks, 1 tweet")
-python -m hermesbench render-reel traces/qwen_*.cast --format gif --out reel.gif
+python -m hermesbench render-reel traces/qwen_*.cast --format gif --out reel.gif \
+    --max-total-seconds 60 --per-task-seconds 20
 
 # Browse a recording locally before posting
 python -m hermesbench play traces/qwen_t03_*.cast
@@ -922,24 +974,63 @@ python -m hermesbench play traces/qwen_t03_*.cast
 
 ## 7. Implementation phases
 
+### Phase 0 — Pre-implementation verification (Day 0)
+- [ ] **Q52 — Trace format reconciliation.** Dump one existing
+      session from `~/.hermes/state.db` to JSONL via
+      `hermes_state.SessionDB`, diff against §3 "Trace format"
+      sketch, reconcile any field-name or type mismatches.
+- [ ] `pyproject.toml` skeleton with `requires-python = ">=3.11"`,
+      `py.typed` marker, `requires = [pyyaml, pyte, psutil, pynvml,
+      py-cpuinfo, rich, click, aiohttp]`
+- [ ] `requirements.lock` generated via
+      `uv pip compile pyproject.toml --output-file requirements.lock`
+- [ ] `.pre-commit-config.yaml` with `ruff` (lint+format) and `mypy`
+- [ ] `.github/workflows/ci.yml`: lint, typecheck, full test suite
+      (Q74), `test_recorder_roundtrip`, `test_statsd_runs`
+- [ ] `pyright` config in `pyproject.toml`; CI uses `mypy --strict`
+- [ ] `tasks/_template/` with `task.yaml` (using the full Q20 schema),
+      `verifier.py`, `fixture/`, `README.md`
+- [ ] `fixtures/README.md` with the threat model from Q6.3
+      (prompt-injection awareness for fixture authors)
+- [ ] Decide: shell out the work to one or more subagents in
+      parallel? Phase 1-3 are highly serial (shared package
+      skeleton); Phase 5-7 (test authoring, baseline runs) are
+      parallelizable.
+
 ### Phase 1 — Skeleton + `TmuxIsolatedEnvironment` backend (Day 1-3)
 - [ ] `pyproject.toml` + `hermesbench/` package skeleton
-      (deps: `pyyaml`, `pyte`, `psutil`, `pynvml`, `py-cpuinfo`)
+      (deps: `pyyaml`, `pyte`, `psutil`, `pynvml`, `py-cpuinfo`, `rich`,
+      `click`, `aiohttp`)
 - [ ] `backend/tmux_isolated.py` — first cut: `init_session`, `_run_bash`, `cleanup`
+- [ ] `init_session()` sets per-task `ulimit -v`, `ulimit -u`, `ulimit -f`
+      from `task.yaml: resource_limits` (Q48)
+- [ ] `init_session()` injects `DISABLED_TOOLSETS` from
+      `task.yaml: hermes_plugins` (Q54)
+- [ ] `init_session()` honors `task.yaml: latency_injection_ms` by
+      patching `_run_bash` to sleep the configured delay (Q59)
 - [ ] `backend/recorder.py` — `pyte`-based pipe-pane sink that writes
       asciinema v2 `.cast` files (80 LOC + roundtrip test)
 - [ ] Wire `tmux pipe-pane` into `init_session()` so every task
       records automatically
-- [ ] `backend/worktree.py` — `worktree_setup(task)` copies fixtures, sets up isolated `$HOME`
+- [ ] `backend/worktree.py` — `worktree_setup(task)` creates the
+      worktree at `traces/<run_id>/<task_id>/worktree/` (Q55) and
+      copies fixtures per `task.yaml: fixture`
 - [ ] `statsd/collector.py` + `sources/{cpu,gpu_nvidia,gpu_amd,gpu_intel,memory,nvme,host_power,process}.py`
 - [ ] `statsd/pinning.py` — detect model's process tree, pick a quiet core,
-      `os.nice(19)` + `ionice(IDLE)`, `taskset -c $quiet_core` on Linux
+      `os.nice(19)` + `ionice(IDLE)`, `taskset -c $quiet_core` on Linux.
+      Emits `WARNING: statsd pinned-core fallback engaged` to
+      `meta.json: {warnings: [...]}` when no quiet core is available (Q62)
 - [ ] `statsd/__main__.py` — CLI: `python -m hermesbench.statsd --out ... --hz 5`
-- [ ] `runner.py` — task lifecycle: statsd first → spawn hermes → trace → teardown
+- [ ] `runner.py` — task lifecycle: statsd first → spawn hermes
+      (`python -u -m hermes_agent --print-mode jsonl --no-tui
+      --line-buffered`, Q53) → trace → teardown
+- [ ] Endpoint smoke-test (Q57): runner sends a 1-token request to
+      `$base_url` and asserts `model_endpoint` contract before kicking off
 - [ ] Manual smoke test: 1 task against a real model, confirm tmux session is
       created, model runs, **`.cast` is produced and re-playable**,
       **`.stats.jsonl` is produced and has all 7 metric groups**,
-      tmux is killed, worktree is removed
+      **`.trace.jsonl` is one-message-per-line (no buffering merge)**
+      tmux is killed, worktree is preserved
 - [ ] Add the `TERMINAL_ENV=tmux_isolated` branch to hermes-agent's
       `_create_environment()` factory (1-line PR to `tools/terminal_tool.py`)
 
@@ -950,13 +1041,21 @@ python -m hermesbench play traces/qwen_t03_*.cast
       `hermes_observability/print_jsonl.py` plugin as a fallback
 - [ ] Verify trace format matches the wire format in §3 "Trace format"
 
-### Phase 3 — Author 40 tasks (Day 6-10)
-- [ ] Categories 1-6 (29 tasks): file/terminal/process — the 88% bulk
-- [ ] Categories 7-10 (11 tasks): todo/exec_code/web/memory
-- [ ] Each task gets: `task.yaml`, `verifier.py`, fixture data
+### Phase 3 — Author 43 tasks (Day 6-10)
+- [ ] Categories 1-6 (30 tasks): file/terminal/process — the 88% bulk
+      (t06_process_mgmt now has 5 tasks per Q60, t02_file_read has
+      6 tasks per Q61)
+- [ ] Categories 7-10 (10 tasks): todo/exec_code/web/memory
+      (t08_execute_code now has 5 tasks per Q60)
+- [ ] Category 11 (3 tasks): error_recovery (Q58)
+- [ ] Each task gets: `task.yaml` (full Q20 schema), `verifier.py`,
+      fixture data, `difficulty: 1|2|3`
 - [ ] Each task declares `isolated_network: bool` in `task.yaml`
       (defaults to `false` for hermeticity)
-- [ ] Commit fixtures to repo (size cap: 100 KB per fixture, gzip if larger)
+- [ ] Each task declares `hermes_plugins: []` (Q54)
+- [ ] At least one task in t07 uses `latency_injection_ms` (Q59)
+- [ ] Commit fixtures to repo (size cap: 100 KB per fixture, enforced
+      by `tests/lint_fixture_sizes.py` per Q3)
 
 ### Phase 4 — Mode B (slim harness) for hermes-less CI (Day 11)
 - [ ] `HermesBenchHarness` 200-line implementation
@@ -966,22 +1065,33 @@ python -m hermesbench play traces/qwen_t03_*.cast
 
 ### Phase 5 — Scoring + reporting (Day 12)
 - [ ] `scoring.py` computes all 6 metrics + the 9 hardware metrics
-- [ ] `scoring.py` implements the `joules_per_output_token` and
-      `tok_per_watt` derivations (joins trace.jsonl token counts with
-      stats.jsonl power samples on `t`)
+- [ ] `scoring.py` implements the `gen_joules_per_output_token` /
+      `wall_joules_per_output_token` split (Q44)
+- [ ] `scoring.py` computes `temp_auc_above_85c_seconds` (Q63)
+- [ ] `scoring.py` implements the join-tolerance from Q64 (±100ms)
 - [ ] `scoring.py` implements the thermal-warning heuristic
       (`peak_gpu_temp_c > 90` OR `throttled_seconds > 5` → warn)
+- [ ] `scoring.py` implements thermal-state-aware comparison (Q51)
 - [ ] `results/<model>_<date>.json` per-run aggregate
 - [ ] `cli.py` `stats` subcommand: per-task summary, `--summary` table,
       `--plot` matplotlib temp/power-over-time chart (saves PNG)
 - [ ] `cli.py` `render` subcommand: `.cast` → `.gif` / `.mp4` via `agg` + `ffmpeg`,
-      with `--overlay-stats` HUD strip
-- [ ] `cli.py` `render-reel` subcommand: concat multiple casts
+      with `--overlay-stats` HUD strip, `--preset <name>` (Q71)
+- [ ] `cli.py` `render-reel` subcommand: concat multiple casts,
+      `--max-total-seconds 60` (Q37)
 - [ ] `cli.py` `play` subcommand: `asciinema play` wrapper for local preview
+- [ ] `cli.py` `archive` subcommand: tar up a task's trace+cast+stats
+      +worktree into `~/.hermes/archives/` (Q56)
+- [ ] `cli.py` `merge` subcommand: combine runs from parallel
+      processes (Q23, Q73)
+- [ ] `cli.py` `--dry-run` flag for `run` (Q72)
+- [ ] `cli.py` `doctor` subcommand (Q70): pre-flight checks
 - [ ] `examples/` directory seeded with 3 reference GIFs (one per
       difficulty tier: easy/medium/hard) and 3 reference stats plots
       (one clean run, one thermal-throttled run, one CPU-bound run) so
       README screenshots stay accurate when the suite evolves
+- [ ] **Q74 — Test plan.** Add the 8 test files listed in Q74.
+      `pytest --cov=hermesbench --cov-fail-under=80` in CI.
 
 ### Phase 6 — Export to SFT format (Day 13)
 - [ ] `export-sft` command: traces → OpenAI / ShareGPT / Hermes message formats
@@ -1004,18 +1114,27 @@ python -m hermesbench play traces/qwen_t03_*.cast
 ### Phase 8 — v0.1 release tag (Day 16)
 - [ ] README with quick-start, results table, "how to add a task" guide,
       "how to add a new environment backend" guide
+- [ ] **`hermesbench doctor` subcommand (Q70)** — pre-flight checks
+- [ ] **`make demo` (Q70)** — one-task end-to-end demo
+- [ ] **`docs/adding_backends.md` (Q9.3)** — 1-page guide for adding
+      a new `BaseEnvironment` subclass
+- [ ] **`docs/glossary.md` (Q9.4)** — worktree, session, run_id,
+      fixture, verifier, etc.
+- [ ] `render --examples` output (Q71) committed to docs
 - [ ] Open upstream PR to hermes-agent: register `tmux_isolated` backend
 - [ ] `git tag v0.1`
 - [ ] Internal dogfood: run the suite in our own dev loop for 1 week,
       fix anything that breaks
+- [ ] `project.md` moved to `docs/plan.md` (Q9.5); README is the
+      canonical entry point; plan is the historical artifact
 
 ---
 
 ## 8. v0.2+ roadmap (out of scope for v0.1, listed for context)
 
-- **v0.2 — Multi-modal + longer horizon:** vision tasks (image Q&A), browser tasks (offline mock DOM), 60-100 turn projects, **per-SM/EFM utilization via `nvidia-smi dmon` + `intel_gpu_top` extra overlay**, **ambient temperature via optional hwmon sensor**
-- **v0.3 — Adversarial:** prompt-injection resistance, ambiguous user prompts, broken-tool recovery
-- **v0.4 — Live net:** opt-in `network: required` flag, real `web_search`/`web_extract`
+- **v0.2 — Multi-modal + longer horizon:** vision tasks (image Q&A), browser tasks (offline mock DOM), 60-100 turn projects, **per-SM/EFM utilization via `nvidia-smi dmon` + `intel_gpu_top` extra overlay** (G4.5), **ambient temperature via optional hwmon sensor** (Q18), **`media: {type: audio|video, source_file: ...}` task field** (G5.4), **`unshare --net --mount` for loopback isolation** (G6.2), **statsd in `systemd-run` cgroup** (G6.4)
+- **v0.3 — Adversarial:** prompt-injection resistance, ambiguous user prompts, broken-tool recovery (builds on Q58 error_recovery category)
+- **v0.4 — Live net:** opt-in `network: required` flag, real `web_search`/`web_extract` (builds on Q36 mock server)
 - **v0.5 — Cross-session:** tasks that span multiple `AIAgent` sessions with persistent memory
 - **v0.6 — Skill usage:** force-load a skill, test if model invokes `skill_view` to read it
 - **v1.0 — Public leaderboard:** website hosting results, model submission PR workflow
@@ -1068,6 +1187,43 @@ python -m hermesbench play traces/qwen_t03_*.cast
       refuses cross-SHA continuation by default
 - [ ] SFT export uses loss masks (only completion tokens scored);
       verified by `test_export_sft_loss_masks.py`
+- [ ] **G1.1:** Phase 0 trace-format reconciliation is committed
+      *before* any code is written; the diff between
+      `state.db`-exported messages and the §3 sketch is recorded in
+      `docs/trace_format_reconciliation.md`
+- [ ] **G1.3:** `test_line_buffered_streaming.py` passes — 100
+      tool calls produce exactly 100 tool_result lines
+- [ ] **G1.4:** A task with `hermes_plugins: [kanban]` runs without
+      the model being able to invoke `kanban_show` (tool absent from
+      schema); verified by `test_plugin_allowlist.py`
+- [ ] **G2.3:** `meta.json: {worktree: ".../traces/<run>/<task>/worktree"}`
+      is a path that exists for the life of the run archive
+- [ ] **G2.5:** `--dry-run` returns exit 2 with a clear message
+      when the endpoint doesn't support `tools`; verified by
+      `test_endpoint_smoke_test.py`
+- [ ] **G3.2:** `recovery_rate` reported per model, per category;
+      recovery metric is a top-line field in the per-model summary
+- [ ] **G3.5:** `parallel_tool_call_rate` reported per model on
+      t02_file_read/t06_read_parallel
+- [ ] **G4.2:** `meta.json: {warnings: ["statsd pinned-core fallback
+      engaged"]}` appears in any run where the model saturated every
+      core; thermal warning banner reflects this
+- [ ] **G6.3:** `tests/lint_fixtures.py` rejects fixture commits
+      that contain injection patterns without the
+      `## hermesbench: allow-injection` marker
+- [ ] **G7.1:** `hermesbench doctor` returns exit 0 on a healthy
+      host, exit 4 with remediation hints on a missing dep;
+      `make demo` runs end-to-end in <5 min on a fresh checkout
+- [ ] **G7.2:** `hermesbench render --examples` prints the 5
+      preset invocations
+- [ ] **G7.3:** `hermesbench run --all --dry-run` returns exit 0
+      on a valid task set, exit 2 on a typo'd task id, with no
+      hermes subprocess spawned
+- [ ] **G8.1:** `pytest --cov=hermesbench --cov-fail-under=80` passes
+      in CI; the 8 test files listed in Q74 are present
+- [ ] **G8.3:** `pyproject.toml: requires-python = ">=3.11"` is set
+- [ ] **G8.4:** `requirements.lock` is committed; CI uses
+      `uv pip sync requirements.lock`
 
 ---
 
@@ -1210,7 +1366,16 @@ actual surface and what canonical benchmarks do.
       max_file_size_mb: 1024
       max_worktree_mb: 2048      # over-quota worktree is rm-rf'd by runner
     difficulty: 2                # 1=easy, 2=medium, 3=hard
-                              # scoring reports pass_rate_by_difficulty
+                                 # scoring reports pass_rate_by_difficulty
+    hermes_plugins: []           # Q54: allowlist; default [] = no plugins
+    latency_injection_ms:        # Q59: per-tool delay, default 0
+      terminal: 0
+      read_file: 0
+      patch: 0
+    model_endpoint:              # Q57: smoke-tested before run
+      type: openai_chat_completions
+      required_fields: [tools, tool_choice]
+      forbidden_fields: [logprobs]
     ```
 
 **Note on sampling determinism (G2.1):** Even at `temperature=0`,
@@ -1402,6 +1567,227 @@ highest-leverage fixes from the rubric. Each was prioritized by
     comparison may be misleading" unless
     `--allow-thermal-compare` is passed. Numbers stay; the
     warning is advisory (matches Q19 philosophy).
+
+### Round-3 questions from the rubric (Q52-Q75)
+
+These close the remaining 24 gaps identified in the rubric. The
+goal: a plan that can be executed end-to-end without re-design.
+
+#### Fidelity & harness integration
+
+52. **Trace format reconciliation (G1.1).** Before Phase 1 writes
+    any code, **Phase 0 step 0** is: dump one existing session
+    from `~/.hermes/state.db` to JSONL (using
+    `hermes_state.SessionDB`), diff against the §3 "Trace format"
+    sketch, and reconcile any field-name or type mismatches. This
+    is a 2-hour task that prevents weeks of "the trace format
+    looked right but doesn't actually re-import" pain.
+53. **Line-buffered stdout (G1.3).** Hermes is invoked with
+    `python -u -m hermes_agent --print-mode jsonl --no-tui
+    --line-buffered`. `--line-buffered` is the upstream flag (or
+    falls back to `stdbuf -oL` injection via `PYTHONUNBUFFERED=1`
+    + `Popen(stdout=PIPE, bufsize=0)`). A test
+    `test_line_buffered_streaming.py` fires 100 tool calls and
+    asserts the trace jsonl has exactly 100 tool_result lines
+    (no merging, no loss).
+54. **Plugin allowlist (G1.4).** `task.yaml` declares
+    `hermes_plugins: [kanban, memory, observability, ...]` —
+    the *allowed* plugins for this task. The runner injects
+    `DISABLED_TOOLSETS` for everything not in this list. Default
+    is `[]` (no plugins), which is hermes's normal CLI
+    environment. This prevents a model upgrade that triggers a
+    `kanban_*` call from silently affecting scores.
+
+#### Reproducibility & determinism
+
+55. **Worktree persistence (G2.3).** Worktrees are *not*
+    `mkdtemp` — they're created at
+    `traces/<run_id>/<task_id>/worktree/` and kept for the life
+    of the `results/<run_id>/` directory. `meta.json` references
+    the path; the path is valid as long as the run archive is
+    kept. Cleanup of `traces/` is a user-driven action
+    (`hermesbench archive --gc` or `rm -rf`), never automatic.
+    This is what makes SFT debugging possible — the user can
+    `cd` into the exact worktree where a trace was produced.
+56. **Selective cast commit (G2.4).** `hermesbench archive
+    --include <task_id>` tars up trace + cast + stats +
+    worktree for the named task into a single
+    `~/.hermes/archives/<run_id>_<task_id>.tar.zst`. The
+    default `traces/*.cast` `.gitignore` is preserved; only
+    the casts referenced by `examples/` or the baseline report
+    are committed to the repo. The `archive` subcommand is in
+    the §6 CLI surface.
+57. **Endpoint smoke-test (G2.5).** `task.yaml` declares
+    `model_endpoint: {type: openai_chat_completions,
+    required_fields: [tools, tool_choice], forbidden_fields:
+    [logprobs]}` (default: the openai_chat_completions
+    contract). The runner smoke-tests the endpoint before
+    kicking off the suite by sending a 1-token request and
+    asserting the response shape matches the contract. If it
+    doesn't, the runner returns exit code 2 (Q33) with a
+    clear "endpoint at $base_url does not support $field" message.
+
+#### Task quality & coverage
+
+58. **Error-recovery category (G3.2).** New category
+    `t11_error_recovery` (3 tasks): one task where the
+    fixture is read-protected and the model must use `sudo`
+    or work around; one task where the first `patch` call
+    returns "Did you mean..." and the model must disambiguate
+    with `read_file`; one task where the first `terminal`
+    call returns a transient network error and the model must
+    retry. Verifier measures: (a) does the model recover
+    within 2 turns, (b) does the final state match the
+    expected state. Recovery rate is the primary metric.
+59. **Latency injection (G3.3).** `task.yaml` declares
+    `latency_injection_ms: {tool: terminal, delay_ms: 1500}`
+    (default 0). The runner patches the
+    `TmuxIsolatedEnvironment._run_bash` to sleep `delay_ms`
+    after each command returns. At least one task in
+    `t07_todo_plan` uses `delay_ms: 2000` to measure whether
+    the model is patient (incremental verification) vs
+    bursty (parallel commands).
+60. **Promoted task counts (G3.4).** Category 6 (`process`)
+    goes from 3 to 5 tasks; category 8 (`execute_code`) goes
+    from 3 to 5 tasks. Both reflect the 184+ and 294 real
+    invocations observed in session data.
+61. **Parallel-tool-calls task (G3.5).** New task in
+    `t02_file_read`: prompt is "Show me the first 10 lines
+    of `a.py`, `b.py`, and `c.py`." Verifier counts the
+    number of `read_file` *turns* (not calls): a model that
+    emits all 3 calls in one assistant turn scores 1 turn;
+    a sequential model scores 3. The metric
+    `parallel_tool_call_rate` is reported per model.
+
+#### Measurement integrity
+
+62. **Pinning fallback warning (G4.2).** When statsd's
+    "pin to quiet core" heuristic (line 397) fails to find a
+    core below 25% util, the fallback is taken AND a
+    `WARNING: statsd pinned-core fallback engaged,
+    measurement noise +X%` is appended to
+    `meta.json: {warnings: [...]}`. The thermal warning
+    banner in scoring shows this. A test
+    `test_statsd_fallback_warning.py` saturates every core
+    and asserts the warning is emitted.
+63. **Temp AUC (G4.3).** Already in §5 metrics as
+    `temp_auc_above_85c_seconds`. Documented formula:
+    `sum(max(0, temp_c - 85) * dt)` over all statsd samples.
+64. **Timestamp join tolerance (G4.4).** The `scoring.py`
+    join between `.stats.jsonl` (wall-clock float) and trace
+    `jsonl` (`ts` field, also float) uses a ±100ms tolerance.
+    A stats sample at `t=12.345` matches a trace message with
+    `ts` in `[12.245, 12.445]`. Documented in `scoring.py`
+    docstring; a test `test_scoring_join_tolerance.py`
+    asserts samples outside the window are dropped, not
+    snapped.
+
+#### SFT data utility
+
+65. **SFT quality filter (G5.2).** Already in Q47; this
+    entry is a no-op confirmation.
+66. **v0.2 multimodal note (G5.4).** Cast files don't include
+    audio/video; SFT from audio tasks needs the raw audio,
+    not the cast. Roadmap: v0.2 adds a
+    `task.yaml: {media: {type: audio, source_file: foo.wav}}`
+    field; trace jsonl carries a relative path to the
+    media file in `traces/<run_id>/<task_id>/media/`.
+
+#### Isolation & safety
+
+67. **Loopback unshare (G6.2).** v0.2: extend
+    `unshare --net` to `unshare --net --mount` so the
+    task can't see host loopback services. v0.1 is fine
+    without this because the task's worktree is
+    on a fresh tmpfs path.
+68. **Prompt-injection lint (G6.3).** `tests/lint_fixtures.py`
+    walks every committed fixture, scans for
+    injection-shaped strings ("ignore previous instructions",
+    "disregard your prior rules", "system prompt:") and
+    fails the build on hit. The lint is in `tests/` (it's
+    *not* a hermesbench runtime check) and runs in CI.
+    Fixtures with intentional injection patterns are
+    allowed via an explicit `## hermesbench: allow-injection`
+    comment marker on the same line.
+69. **statsd cgroup (G6.4).** v0.2: run statsd in a
+    `systemd-run --scope --user --property=CPUQuota=5%`
+    scope so model CPU pressure can't starve statsd of
+    time slices, not just priority. v0.1 accepts some
+    noise on small dense models.
+
+#### Operator UX
+
+70. **`hermesbench doctor` (G7.1).** A new subcommand that
+    checks: hermes-agent reachable, model endpoint
+    responsive, `pynvml` importable, `pyte` importable,
+    `agg` binary on `$PATH`, `ffmpeg` on `$PATH`, write
+    access to `~/.hermes/archives/`. Prints a 1-line
+    per-check status (✓ / ✗ / ⚠) with a one-line
+    remediation hint. Exit 0 if all green, exit 4 (Q33)
+    if any required dep is missing. `make demo` runs
+    `doctor` then starts a llama.cpp server with a tiny
+    model and runs one task end-to-end. Both are
+    Phase 8 deliverables.
+71. **Render presets (G7.2).** `hermesbench render
+    --examples` prints 5 common invocations.
+    `--preset x-tweet` (60s, 1080p, watermarked),
+    `--preset x-thread` (4×30s, captioned),
+    `--preset docs` (MP4, no watermark, no caption),
+    `--preset debug` (raw cast, no stats overlay),
+    `--preset gallery` (PNG stills at fixed timestamps).
+    Presets are stored in `hermesbench/presets/*.yaml`
+    and user-extensible.
+72. **`--dry-run` (G7.3).** `hermesbench run --dry-run`
+    validates: every `task.yaml` parses, every fixture
+    path resolves, every verifier imports cleanly (and
+    passes the stdlib allowlist lint), hermes-agent
+    reachable, model endpoint responsive. Returns
+    exit 0 on success, exit 2 on setup error. **No
+    hermes subprocess is spawned.** A user with
+    `--dry-run` in their muscle memory will not waste
+    20-60 minutes on a typo.
+73. **`merge` in §6 CLI (G7.4).** Already mentioned in
+    Q23; add explicit CLI entry:
+    `python -m hermesbench merge results/run1/ results/run2/
+    --out results/merged/`. With thermal-state-aware
+    comparison (Q51), prints the comparison matrix
+    and any cross-run warnings.
+
+#### Engineering rigor
+
+74. **Test plan (G8.1).** Phase 5 adds:
+    - `tests/test_scoring.py` — J/tok derivation,
+      pass_rate_by_difficulty, thermal-state-aware
+      comparison, temp AUC
+    - `tests/test_cli.py` — every subcommand's happy
+      path and at least one error path
+    - `tests/test_verifier_contract.py` — every
+      shipped verifier returns a `VerifierResult`,
+      every shipped task has a verifier, every
+      verifier passes the stdlib allowlist
+    - `tests/test_mock_server.py` — web corpus
+      routes return the right markdown, /search
+      returns deterministic results, 404s are clean
+    - `tests/test_render.py` — roundtrip a cast
+      through `render --format gif` and assert the
+      GIF is a valid image with >0 frames
+    - `tests/test_lint_verifiers.py` — AST walk
+      with importlib + __import__ detection
+      (G8.2)
+    - `tests/test_lint_fixtures.py` — injection
+      pattern scan (G6.3)
+    - `tests/test_lint_fixture_sizes.py` — 100KB
+      cap enforcement (Q3)
+    Target: ≥80% line coverage on `hermesbench/`,
+    enforced in CI via `pytest --cov=hermesbench
+    --cov-fail-under=80`.
+75. **Python version + lockfile (G8.3 + G8.4).**
+    `pyproject.toml: requires-python = ">=3.11"` (3.11
+    gives us `tomllib`, `Self`, `StrEnum`, and PEP 604).
+    `requirements.lock` committed in Phase 0, generated
+    via `uv pip compile pyproject.toml --output-file
+    requirements.lock`. CI uses `uv pip sync
+    requirements.lock` for reproducible installs.
 
 ---
 
