@@ -19,6 +19,30 @@ logger = logging.getLogger(__name__)
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 
+TOOLSET_MAP = {
+    "terminal": "terminal",
+    "read_file": "file",
+    "patch": "file",
+    "search_files": "search",
+    "write_file": "file",
+    "process": "terminal",
+    "todo": "todo",
+    "execute_code": "code_execution",
+    "web_search": "web",
+    "web_extract": "web",
+    "memory": "memory",
+}
+
+
+def allowed_tools_to_toolsets(allowed_tools: list[str]) -> str:
+    """Map task.yaml allowed_tools to hermes --toolsets value."""
+    toolsets: set[str] = set()
+    for tool in allowed_tools:
+        mapped = TOOLSET_MAP.get(tool)
+        if mapped:
+            toolsets.add(mapped)
+    return ",".join(sorted(toolsets)) if toolsets else "terminal"
+
 
 def find_hermes_agent() -> Path:
     """Resolve the hermes-agent checkout per Q22."""
@@ -142,10 +166,17 @@ def spawn_hermes(
     base_url: str,
     env_overrides: dict[str, str],
     timeout_seconds: int = 180,
+    allowed_tools: list[str] | None = None,
+    use_real_agent: bool = False,
+    max_turns: int = 10,
 ) -> subprocess.Popen:
-    """Spawn hermes-agent as a subprocess and feed the task prompt.
+    """Spawn hermes-agent (real or fake) as a subprocess.
 
-    Q53: --line-buffered, Q54: DISABLED_TOOLSETS from plugin allowlist.
+    Real mode: `hermes -z <prompt> --yolo -Q -t <toolsets> --max-turns N`
+    Model/endpoint set via OPENAI_BASE_URL + OPENAI_MODEL env vars.
+    Trace captured via HERMES_TRAJECTORY_PATH env var.
+
+    Fake mode: scripts/fake_hermes.py (backward compat for dev/testing).
     """
     env = {
         **os.environ,
@@ -162,26 +193,62 @@ def spawn_hermes(
         "PYTHONUNBUFFERED": "1",
         **env_overrides,
     }
-    cmd = [
-        sys.executable,
-        "-u",
-        str(SCRIPTS / "fake_hermes.py"),  # Q-stand-in for hermes-agent
-        "--print-mode",
-        "jsonl",
-        "--no-tui",
-        "--line-buffered",
-    ]
-    proc = subprocess.Popen(
-        cmd,
-        cwd=hermes_path,
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=0,
-    )
-    assert proc.stdin is not None
-    proc.stdin.write(task_prompt + "\n")
-    proc.stdin.flush()
-    return proc
+
+    if use_real_agent:
+        toolsets = allowed_tools_to_toolsets(allowed_tools or ["terminal"])
+        hermes_bin = str(hermes_path / "hermes")
+        cmd = [
+            hermes_bin,
+            "-z", task_prompt,
+            "--yolo",
+            "-Q",
+            "-t", toolsets,
+            "--max-turns", str(max_turns),
+        ]
+        proc = subprocess.Popen(
+            cmd, cwd=str(hermes_path), env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=0,
+        )
+        return proc
+    else:
+        cmd = [
+            sys.executable, "-u",
+            str(SCRIPTS / "fake_hermes.py"),
+            "--print-mode", "jsonl",
+            "--no-tui",
+            "--line-buffered",
+        ]
+        proc = subprocess.Popen(
+            cmd, cwd=hermes_path, env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=0,
+        )
+        assert proc.stdin is not None
+        proc.stdin.write(task_prompt + "\n")
+        proc.stdin.flush()
+        return proc
+
+
+def export_session_trace(
+    hermes_path: Path,
+    session_id: str | None,
+    output_path: Path,
+    timeout: int = 10,
+) -> bool:
+    """Export a hermes-agent session to JSONL for trace analysis."""
+    if not session_id:
+        return False
+    try:
+        result = subprocess.run(
+            [str(hermes_path / "hermes"), "sessions", "export", session_id],
+            capture_output=True, text=True, timeout=timeout,
+            cwd=str(hermes_path),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            output_path.write_text(result.stdout)
+            return True
+    except Exception:
+        pass
+    return False

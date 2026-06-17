@@ -264,3 +264,82 @@ def score_run(
 
     summary["pass_rate"] = passed / total if total else 0.0
     return summary
+
+
+def aggregate_results(run_paths: list[str]) -> list[dict]:
+    """Collect all verifier_result.json across run dirs."""
+    results = []
+    for run_path in run_paths:
+        for f in Path(run_path).rglob("verifier_result.json"):
+            try:
+                with open(f) as fh:
+                    d = json.load(fh)
+                    d["run_path"] = run_path
+                    results.append(d)
+            except (json.JSONDecodeError, IOError):
+                continue
+    return results
+
+
+def category_breakdown(results: list[dict]) -> dict[str, tuple[int, int]]:
+    """Group by category prefix (t01_, t02_, etc.)."""
+    cats: dict[str, list[int]] = {}
+    for r in results:
+        cat = r["task_id"].rsplit("/", 1)[0]
+        if cat not in cats:
+            cats[cat] = [0, 0]
+        cats[cat][1] += 1
+        if r.get("status") == "PASS":
+            cats[cat][0] += 1
+    return {k: (v[0], v[1]) for k, v in cats.items()}
+
+
+def compute_hardware_summary(run_path: str) -> dict[str, float]:
+    """Read stats.jsonl from run dir and compute hardware metrics."""
+    stats_file = Path(run_path) / "stats.jsonl"
+    if not stats_file.exists():
+        return {"error": "no stats.jsonl found"}
+
+    powers: list[float] = []
+    temps: list[float] = []
+    throttle_secs = 0.0
+
+    with open(stats_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+                if "gpu_power" in d:
+                    powers.append(d["gpu_power"])
+                if "gpu_temp" in d:
+                    temps.append(d["gpu_temp"])
+                if d.get("throttle_active"):
+                    throttle_secs += d.get("interval_s", 0.2)
+            except json.JSONDecodeError:
+                continue
+
+    if not powers:
+        return {"error": "no GPU data in stats.jsonl"}
+
+    return {
+        "avg_power_w": sum(powers) / len(powers),
+        "max_power_w": max(powers),
+        "avg_temp_c": sum(temps) / len(temps) if temps else 0,
+        "max_temp_c": max(temps) if temps else 0,
+        "throttle_seconds": throttle_secs,
+        "samples": len(powers),
+    }
+
+
+def difficulty_weighted(results: list[dict]) -> float:
+    """Weight by difficulty: d1=1pt, d2=2pt, d3=3pt."""
+    earned = 0
+    total = 0
+    for r in results:
+        diff = r.get("difficulty", 1)
+        total += diff
+        if r.get("status") == "PASS":
+            earned += diff
+    return earned / total if total else 0.0

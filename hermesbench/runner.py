@@ -65,6 +65,7 @@ def run_task(
     base_url: str,
     repo_root: Path = REPO,
     dry_run: bool = False,
+    use_real_agent: bool = False,
 ) -> TaskResult:
     """Run a single task end-to-end.
 
@@ -231,25 +232,39 @@ def run_task(
             base_url=base_url,
             env_overrides=env_overrides,
             timeout_seconds=task.timeout_seconds,
+            allowed_tools=task.allowed_tools,
+            use_real_agent=use_real_agent,
+            max_turns=task.max_turns,
         )
 
-        # 8. Stream the trace
-        with trace_path.open("w") as f:
-            assert hermes_proc.stdout is not None
-            for line in hermes_proc.stdout:
-                f.write(line)
-        try:
-            hermes_proc.wait(timeout=task.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            # Q42: drain partial trace
-            hermes_proc.kill()
-            if hermes_proc.stdout:
-                try:
-                    rest = hermes_proc.stdout.read(65536)
-                    with trace_path.open("a") as f:
-                        f.write(rest)
-                except Exception:
-                    pass
+        # 8. Stream the trace — dual mode
+        if use_real_agent:
+            # Real agent: wait for completion, then read stdout
+            try:
+                hermes_proc.wait(timeout=task.timeout_seconds)
+            except subprocess.TimeoutExpired:
+                hermes_proc.kill()
+                hermes_proc.wait(timeout=5)
+            stdout_text = hermes_proc.stdout.read() if hermes_proc.stdout else ""
+            with trace_path.open("w") as f:
+                f.write(stdout_text)
+        else:
+            # Fake mode: read JSONL from stdout (existing behavior)
+            with trace_path.open("w") as f:
+                assert hermes_proc.stdout is not None
+                for line in hermes_proc.stdout:
+                    f.write(line)
+            try:
+                hermes_proc.wait(timeout=task.timeout_seconds)
+            except subprocess.TimeoutExpired:
+                hermes_proc.kill()
+                if hermes_proc.stdout:
+                    try:
+                        rest = hermes_proc.stdout.read(65536)
+                        with trace_path.open("a") as f:
+                            f.write(rest)
+                    except Exception:
+                        pass
 
     finally:
         # 9. Stop statsd, cleanup

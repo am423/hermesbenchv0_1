@@ -37,7 +37,7 @@ def test_pytest_collects_zero_failures() -> None:
 def test_hermesbench_imports() -> None:
     import hermesbench
 
-    assert hermesbench.__version__ == "0.1.0"
+    assert hermesbench.__version__ == "0.2.0"
 
 
 def test_types_imports() -> None:
