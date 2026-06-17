@@ -1,0 +1,8 @@
+{
+  "task_id": "t06_process_mgmt/t05_zombie",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use process or terminal",
+  "details": {}
+}

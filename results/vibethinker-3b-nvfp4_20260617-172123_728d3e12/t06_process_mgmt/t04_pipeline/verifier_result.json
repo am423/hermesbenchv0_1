@@ -1,0 +1,8 @@
+{
+  "task_id": "t06_process_mgmt/t04_pipeline",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use terminal",
+  "details": {}
+}

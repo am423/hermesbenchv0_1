@@ -1,0 +1,5 @@
+{"role": "system", "ts": 1781734880.2763872, "content": "You are hermes."}
+{"role": "user", "ts": 1781734880.3763871, "content": "Read the last 20 lines of `add.py`."}
+{"role": "assistant", "ts": 1781734880.4763873, "tool_calls": [{"id": "call_r1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"add.py\"}"}}]}
+{"role": "tool", "ts": 1781734880.7763872, "content": "[read_file] def add(a, b): return a+b", "tool_call_id": "call_r1", "name": "read_file"}
+{"role": "assistant", "ts": 1781734880.8763874, "content": "add.py defines `add(a, b)` which returns a+b."}

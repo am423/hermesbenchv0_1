@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734879.6677556, "content": "You are hermes."}
+{"role": "user", "ts": 1781734879.7677555, "content": "Run `ls -la` and list the files you see."}
+{"role": "assistant", "ts": 1781734879.8677557, "content": "Acknowledged: Run `ls -la` and list the files you see."}

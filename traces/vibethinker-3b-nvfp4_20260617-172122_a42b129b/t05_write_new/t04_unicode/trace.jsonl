@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734882.6072483, "content": "You are hermes."}
+{"role": "user", "ts": 1781734882.7072482, "content": "Create `unicode.txt` containing `\u65e5\u672c\u8a9e \ud83d\ude80 \u00e9mojis`."}
+{"role": "assistant", "ts": 1781734882.8072484, "content": "Acknowledged: Create `unicode.txt` containing `\u65e5\u672c\u8a9e \ud83d\ude80 \u00e9mojis`."}

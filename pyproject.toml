@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermesbench"
-version = "0.1.0"
-description = "Hermes Agent benchmark v0.1 — evaluate local models on the actual tool-calling patterns Hermes users hit"
+version = "0.2.0"
+description = "HermesBench — benchmark local models on real Hermes Agent tool-calling patterns"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "am" }]

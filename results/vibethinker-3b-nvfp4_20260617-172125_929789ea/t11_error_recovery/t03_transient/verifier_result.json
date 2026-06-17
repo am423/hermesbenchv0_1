@@ -1,0 +1,8 @@
+{
+  "task_id": "t11_error_recovery/t03_transient",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "expected >=2 curl calls (retry), got 0",
+  "details": {}
+}

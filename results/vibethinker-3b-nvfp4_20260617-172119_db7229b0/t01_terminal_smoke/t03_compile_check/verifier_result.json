@@ -1,0 +1,8 @@
+{
+  "task_id": "t01_terminal_smoke/t03_compile_check",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use terminal",
+  "details": {}
+}

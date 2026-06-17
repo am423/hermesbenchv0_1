@@ -1,0 +1,8 @@
+{
+  "task_id": "t10_memory_facts/t03_avoid_dup",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use memory",
+  "details": {}
+}

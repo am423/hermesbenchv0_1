@@ -1,0 +1,8 @@
+{
+  "task_id": "t02_file_read/t04_read_missing",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not attempt the missing file",
+  "details": {}
+}

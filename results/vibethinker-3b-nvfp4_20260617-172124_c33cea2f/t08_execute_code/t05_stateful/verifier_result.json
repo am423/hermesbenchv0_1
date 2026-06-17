@@ -1,0 +1,8 @@
+{
+  "task_id": "t08_execute_code/t05_stateful",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "expected >=2 execute_code calls, got 0",
+  "details": {}
+}

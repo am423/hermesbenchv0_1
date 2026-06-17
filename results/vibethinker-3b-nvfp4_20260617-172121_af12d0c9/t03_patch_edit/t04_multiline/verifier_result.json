@@ -1,0 +1,8 @@
+{
+  "task_id": "t03_patch_edit/t04_multiline",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "big_block.py missing",
+  "details": {}
+}

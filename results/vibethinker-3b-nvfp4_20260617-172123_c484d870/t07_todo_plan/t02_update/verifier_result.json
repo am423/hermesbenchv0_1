@@ -1,0 +1,8 @@
+{
+  "task_id": "t07_todo_plan/t02_update",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use todo",
+  "details": {}
+}

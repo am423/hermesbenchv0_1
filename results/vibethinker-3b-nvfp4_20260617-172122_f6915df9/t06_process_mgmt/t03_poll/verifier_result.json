@@ -1,0 +1,8 @@
+{
+  "task_id": "t06_process_mgmt/t03_poll",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use process",
+  "details": {}
+}

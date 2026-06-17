@@ -1,0 +1,8 @@
+{
+  "task_id": "t03_patch_edit/t01_basic",
+  "difficulty": 2,
+  "status": "PASS",
+  "score": 1.0,
+  "reason": "patched with ValueError guard",
+  "details": {}
+}

@@ -1,0 +1,8 @@
+{
+  "task_id": "t01_terminal_smoke/t02_ls",
+  "difficulty": 1,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use terminal",
+  "details": {}
+}

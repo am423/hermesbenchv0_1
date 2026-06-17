@@ -1,0 +1,8 @@
+{
+  "task_id": "t09_web_lookup/t03_no_result",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use web_search",
+  "details": {}
+}

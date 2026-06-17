@@ -1,0 +1,8 @@
+{
+  "task_id": "t11_error_recovery/t01_perms",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "only 0 recovery attempts",
+  "details": {}
+}

@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734880.7679808, "content": "You are hermes."}
+{"role": "user", "ts": 1781734880.8679807, "content": "Show me the contents of `a.py`, `b.py`, and `c.py`. Use a single assistant turn."}
+{"role": "assistant", "ts": 1781734880.9679809, "content": "Acknowledged: Show me the contents of `a.py`, `b.py`, and `c.py`. Use a single assistant turn."}

@@ -1,0 +1,8 @@
+{
+  "task_id": "t05_write_new/t05_nested_path",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "nested file not created",
+  "details": {}
+}

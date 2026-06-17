@@ -1,0 +1,8 @@
+{
+  "task_id": "t02_file_read/t06_read_parallel",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "expected >=3 read calls, got 0",
+  "details": {}
+}

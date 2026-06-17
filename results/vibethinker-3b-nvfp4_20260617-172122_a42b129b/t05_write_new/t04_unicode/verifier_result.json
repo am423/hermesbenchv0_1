@@ -1,0 +1,8 @@
+{
+  "task_id": "t05_write_new/t04_unicode",
+  "difficulty": 1,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "unicode.txt not created",
+  "details": {}
+}

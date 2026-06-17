@@ -1,0 +1,8 @@
+{
+  "task_id": "t07_todo_plan/t01_plan",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not create a 4-item todo list",
+  "details": {}
+}

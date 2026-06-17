@@ -1,0 +1,8 @@
+{
+  "task_id": "t03_patch_edit/t03_unicode",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "hello.txt missing",
+  "details": {}
+}

@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734884.539513, "content": "You are hermes."}
+{"role": "user", "ts": 1781734884.639513, "content": "Use `web_search` to find the capital of France."}
+{"role": "assistant", "ts": 1781734884.7395132, "content": "Acknowledged: Use `web_search` to find the capital of France."}

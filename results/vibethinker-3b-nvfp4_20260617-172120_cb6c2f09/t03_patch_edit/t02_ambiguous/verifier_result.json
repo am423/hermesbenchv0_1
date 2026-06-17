@@ -1,0 +1,8 @@
+{
+  "task_id": "t03_patch_edit/t02_ambiguous",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "dup_strings.py missing",
+  "details": {}
+}

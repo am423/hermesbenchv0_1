@@ -1,0 +1,8 @@
+{
+  "task_id": "t05_write_new/t02_overwrite",
+  "difficulty": 1,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "greeting.txt missing",
+  "details": {}
+}

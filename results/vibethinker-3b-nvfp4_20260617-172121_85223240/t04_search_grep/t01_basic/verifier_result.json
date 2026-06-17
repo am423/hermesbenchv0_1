@@ -1,0 +1,8 @@
+{
+  "task_id": "t04_search_grep/t01_basic",
+  "difficulty": 1,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use search_files",
+  "details": {}
+}

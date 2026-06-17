@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734882.7261596, "content": "You are hermes."}
+{"role": "user", "ts": 1781734882.8261595, "content": "Create a file at `nested/dir/file.txt` containing `nested content`."}
+{"role": "assistant", "ts": 1781734882.9261596, "content": "Acknowledged: Create a file at `nested/dir/file.txt` containing `nested content`."}

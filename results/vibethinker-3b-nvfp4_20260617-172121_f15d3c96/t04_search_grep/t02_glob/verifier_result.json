@@ -1,0 +1,8 @@
+{
+  "task_id": "t04_search_grep/t02_glob",
+  "difficulty": 2,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use file_glob",
+  "details": {}
+}

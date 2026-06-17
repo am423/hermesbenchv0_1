@@ -1,0 +1,3 @@
+{"role": "system", "ts": 1781734884.65754, "content": "You are hermes."}
+{"role": "user", "ts": 1781734884.75754, "content": "Use `web_extract` to fetch `https://wiki.example.com/python` and report the first paragraph."}
+{"role": "assistant", "ts": 1781734884.8575401, "content": "Acknowledged: Use `web_extract` to fetch `https://wiki.example.com/python` and report the first paragraph."}

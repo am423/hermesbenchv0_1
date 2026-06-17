@@ -1,0 +1,8 @@
+{
+  "task_id": "t11_error_recovery/t02_ambiguous",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use both patch and read_file",
+  "details": {}
+}

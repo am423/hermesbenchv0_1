@@ -1,0 +1,38 @@
+# HermesBench v0.2 Configuration
+# Copy to hermesbench.yaml and edit.
+
+model:
+  name: my-model                    # Model name served by vLLM
+  base_url: http://127.0.0.1:8999/v1
+  served_name: my-model             # Must match --served-model-name in vLLM
+  tool_call_parser: hermes          # hermes, qwen, deepseek_r1
+
+# vLLM auto-launch (optional — skip if you manage vLLM separately)
+vllm:
+  auto_launch: false
+  path: /path/to/your/model
+  port: 8999
+  flags:
+    quantization: modelopt          # modelopt, awq, gptq, or omit for BF16
+    kv-cache-dtype: fp8
+    attention-backend: flashinfer
+    gpu-memory-utilization: "0.85"
+    max-model-len: "32768"
+    enable-auto-tool-choice: true
+    tool-call-parser: hermes
+
+# hermes-agent
+hermes:
+  path: ~/.hermes/hermes-agent      # Auto-detected if not set
+  real_agent: false                 # Set true to use real hermes-agent by default
+
+# Results
+results:
+  dir: ./results
+  html_report: true
+  export_sft: true
+
+# Run defaults
+run:
+  timeout_seconds: 120
+  max_turns: 10

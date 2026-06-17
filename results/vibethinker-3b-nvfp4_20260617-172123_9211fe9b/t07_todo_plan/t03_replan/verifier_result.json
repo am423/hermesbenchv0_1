@@ -1,0 +1,8 @@
+{
+  "task_id": "t07_todo_plan/t03_replan",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "expected >=2 todo calls (replan), got 0",
+  "details": {}
+}

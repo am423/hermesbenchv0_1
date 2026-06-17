@@ -32,7 +32,13 @@ lint:
 	python3 -m pytest tests/test_lint_verifiers.py tests/test_lint_fixtures.py tests/test_lint_fixture_sizes.py -v
 
 install:
-	python3 -m pip install --user --break-system-packages -e .
+	./install.sh
+
+setup:
+	./install.sh
+
+serve:
+	python3 -m hermesbench serve $(MODEL) --port $(PORT)
 
 run-all:
 	python3 -m hermesbench run --all --model $(MODEL) --base-url $(BASE_URL)

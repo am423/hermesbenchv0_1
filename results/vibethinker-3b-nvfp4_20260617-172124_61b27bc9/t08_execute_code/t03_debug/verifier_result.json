@@ -1,0 +1,8 @@
+{
+  "task_id": "t08_execute_code/t03_debug",
+  "difficulty": 3,
+  "status": "FAIL",
+  "score": 1.0,
+  "reason": "model did not use execute_code",
+  "details": {}
+}
