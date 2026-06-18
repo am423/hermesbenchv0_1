@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parent.parent
 
+_smoke_test_cache: dict[str, bool] = {}
+
 
 def make_run_id(model: str) -> RunId:
     """Q21: <model_slug>_<YYYYMMDD-HHMMSS>_<8-char-uuid>."""
@@ -114,8 +116,8 @@ def run_task(
     stats_path = task_dir / "stats.jsonl"
     trace_path = task_dir / "trace.jsonl"
 
-    # 3. Endpoint smoke test (Q57)
-    if not dry_run:
+    # 3. Endpoint smoke test — cached per model to avoid API rate limits
+    if not dry_run and not _smoke_test_cache.get(model):
         ok, msg = smoke_test_endpoint(
             base_url, model, task.model_endpoint.__dict__
         )
@@ -136,8 +138,7 @@ def run_task(
                 finished_at=time.time(),
                 error=msg,
             )
-
-    # 4. Run the task (only if not dry-run)
+        _smoke_test_cache[model] = True
     if dry_run:
         return TaskResult(
             task_id=task.id,

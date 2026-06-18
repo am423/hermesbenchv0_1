@@ -104,6 +104,11 @@ def smoke_test_endpoint(base_url: str, model: str, expected: dict) -> tuple[bool
     try:
         import urllib.request
 
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
         req = urllib.request.Request(
             f"{base_url.rstrip('/')}/chat/completions",
             data=json.dumps(
@@ -114,7 +119,7 @@ def smoke_test_endpoint(base_url: str, model: str, expected: dict) -> tuple[bool
                     "stream": False,
                 }
             ).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=10) as r:
             resp = json.loads(r.read())
@@ -141,7 +146,7 @@ def smoke_test_endpoint(base_url: str, model: str, expected: dict) -> tuple[bool
                             ],
                         }
                     ).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers=headers,
                 )
                 with urllib.request.urlopen(req2, timeout=10) as r2:
                     resp2 = json.loads(r2.read())
