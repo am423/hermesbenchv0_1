@@ -1,4 +1,4 @@
-# hermesbench v0.1
+# hermesbench
 
 A benchmark for **local models running inside the Hermes Agent
 harness**. Captures full conversation traces (every tool call +
@@ -6,7 +6,7 @@ result + reasoning + token IDs), asciinema recordings, and 5 Hz
 hardware telemetry. Designed to be the ground truth for "how good
 is this model at *using* hermes-agent?" — not just at generating text.
 
-> **Repo:** `github.com/am423/hermesbenchv0_1` (private until v0.1 release)
+> **Repo:** `github.com/am423/hermesbenchv0_1`
 > **Plan:** see [`project.md`](./project.md) (1,813 lines, 11 sections, 75 answered design questions)
 > **Rubric:** see [`rubric.md`](./rubric.md) (the self-grade)
 

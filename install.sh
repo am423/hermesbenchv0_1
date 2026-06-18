@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "╔══════════════════════════════════════╗"
-echo "║  HermesBench v0.2 Installer          ║"
+echo "║  HermesBench Installer          ║"
 echo "╚══════════════════════════════════════╝"
 
 # 1. Python check (3.11+)
