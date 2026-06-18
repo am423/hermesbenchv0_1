@@ -6,7 +6,7 @@ result + reasoning + token IDs), asciinema recordings, and 5 Hz
 hardware telemetry. Designed to be the ground truth for "how good
 is this model at *using* hermes-agent?" — not just at generating text.
 
-> **Repo:** `github.com/am423/hermesbenchv0_1`
+> **Repo:** `github.com/am423/hermes-bench-tool-call`
 > **Plan:** see [`project.md`](./project.md) (1,813 lines, 11 sections, 75 answered design questions)
 > **Rubric:** see [`rubric.md`](./rubric.md) (the self-grade)
 
@@ -110,7 +110,7 @@ See [`project.md` §3](./project.md) for the full design rationale.
 ## Layout
 
 ```
-hermesbenchv0_1/
+hermes-bench-tool-call/
 ├── README.md                 # this file
 ├── project.md                # the design plan (1,813 lines)
 ├── rubric.md                 # the self-grade (95/100)

@@ -41,7 +41,7 @@ dev = ["pre-commit>=3.7", "uv>=0.1"]
 hermesbench = "hermesbench.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/am423/hermesbenchv0_1"
+Homepage = "https://github.com/am423/hermes-bench-tool-call"
 
 [tool.setuptools.packages.find]
 where = ["."]
