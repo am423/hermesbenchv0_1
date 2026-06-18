@@ -212,7 +212,7 @@ def spawn_hermes(
             "--max-turns", str(max_turns),
         ]
         proc = subprocess.Popen(
-            cmd, cwd=str(hermes_path), env=env,
+            cmd, cwd=str(worktree), env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=0,
         )
