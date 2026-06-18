@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class HyperframesRecorder:
-    def __init__(self, model, base_url, output="hyperframes.mp4",
+    def __init__(self, model, base_url, output="videos/hyperframes.mp4",
                  duration=1800, real_agent=True, session_name="hb-record",
                  attach_mode=False):
         self.model = model

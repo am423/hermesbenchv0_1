@@ -362,7 +362,7 @@ def compare(run_paths: tuple[str, ...], html: str | None) -> None:
 @main.command()
 @click.option("--model", "-m", required=True, help="Model name")
 @click.option("--base-url", required=True, help="Model base URL")
-@click.option("--output", "-o", default="hyperframes.mp4", help="Output video path")
+@click.option("--output", "-o", default="videos/hyperframes.mp4", help="Output video path")
 @click.option("--duration", "-d", type=int, default=1800, help="Recording duration (seconds)")
 @click.option("--real-agent/--fake-agent", default=True, help="Use real hermes-agent")
 @click.option("--attach/--headless", default=False,
