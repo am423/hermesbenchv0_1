@@ -19,6 +19,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+FAKE_HERMES_TEST_PATH = Path(__file__).resolve().parent.parent / "tests" / "support" / "fake_hermes.py"
 
 TOOLSET_MAP = {
     "terminal": "terminal",
@@ -70,6 +71,14 @@ def find_hermes_agent() -> Path:
     raise FileNotFoundError(
         "Could not find hermes-agent. Set $HERMES_AGENT_PATH or install hermes_agent."
     )
+
+
+def hermes_python(hermes_path: Path) -> str:
+    """Prefer Hermes Agent checkout venv for run_agent.py (fire, dotenv, etc.)."""
+    venv_py = hermes_path / ".venv" / "bin" / "python"
+    if venv_py.is_file():
+        return str(venv_py)
+    return sys.executable
 
 
 def get_hermes_sha(hermes_path: Path) -> str:
@@ -182,7 +191,7 @@ def spawn_hermes(
     Model/endpoint set via OPENAI_BASE_URL + OPENAI_MODEL env vars.
     Trace captured via HERMES_TRAJECTORY_PATH env var.
 
-    Fake mode: scripts/fake_hermes.py (backward compat for dev/testing).
+    Fake mode: tests/support/fake_hermes.py when HERMESBENCH_ALLOW_FAKE_RUNNER=1.
     """
     env = {
         **os.environ,
@@ -217,24 +226,42 @@ def spawn_hermes(
             text=True, bufsize=0,
         )
         return proc
-    else:
-        cmd = [
-            sys.executable, "-u",
-            str(SCRIPTS / "fake_hermes.py"),
-            "--print-mode", "jsonl",
-            "--no-tui",
-            "--line-buffered",
-        ]
-        proc = subprocess.Popen(
-            cmd, cwd=hermes_path, env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=0,
+
+    if os.environ.get("HERMESBENCH_ALLOW_FAKE_RUNNER") != "1":
+        raise RuntimeError(
+            "Legacy fake_hermes runner is disabled. Use: hermesbench run "
+            "(real Hermes Agent). For tests, set HERMESBENCH_ALLOW_FAKE_RUNNER=1."
         )
-        assert proc.stdin is not None
-        proc.stdin.write(task_prompt + "\n")
-        proc.stdin.flush()
-        return proc
+    fake_script = FAKE_HERMES_TEST_PATH
+    if not fake_script.is_file():
+        legacy_fake = SCRIPTS / "fake_hermes.py"
+        if legacy_fake.is_file():
+            fake_script = legacy_fake
+        else:
+            raise FileNotFoundError(f"missing test fake agent: {FAKE_HERMES_TEST_PATH}")
+    cmd = [
+        sys.executable,
+        "-u",
+        str(fake_script),
+        "--print-mode",
+        "jsonl",
+        "--no-tui",
+        "--line-buffered",
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        cwd=hermes_path,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=0,
+    )
+    assert proc.stdin is not None
+    proc.stdin.write(task_prompt + "\n")
+    proc.stdin.flush()
+    return proc
 
 
 def export_session_trace(

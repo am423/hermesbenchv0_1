@@ -10,9 +10,11 @@ is this model at *using* hermes-agent?" — not just at generating text.
 > **Plan:** see [`project.md`](./project.md) (1,813 lines, 11 sections, 75 answered design questions)
 > **Rubric:** see [`rubric.md`](./rubric.md) (the self-grade)
 
+**Agents:** see [AGENTS.md](./AGENTS.md) for install, `hermesbench run`, flags, and repo rules.
+
 ## What it does
 
-- **43 tasks across 11 categories** — terminal smoke, file read,
+- **48 tasks across 11 categories** — terminal smoke, file read,
   patch, search, write, process, todo, execute_code, web_lookup,
   memory, error_recovery
 - **Runs the real `AIAgent` from `~/.hermes/hermes-agent/`** in a
@@ -31,37 +33,45 @@ is this model at *using* hermes-agent?" — not just at generating text.
   recovery rate, format compliance, GPU power/temp, joules-per-token,
   thermal AUC, throttle seconds
 
-## Quick start (5 minutes)
+## Quick start (clone → benchmark)
 
 ```bash
-# 1. Install (editable, with all deps)
-make install
+git clone https://github.com/am423/hermes-bench-tool-call.git
+cd hermes-bench-tool-call
+./scripts/bootstrap.sh          # .venv + pip install -e .
+source .venv/bin/activate
+hermesbench doctor --install    # fix missing Python deps
+hermesbench validate
+```
 
-# 2. Verify environment
-make doctor
+**Primary benchmark** (`hermesbench run` → real Hermes `run_agent.py`; see [AGENTS.md](./AGENTS.md)):
 
-# 3. Run a single task against a local model server
-python3 -m hermesbench run \
-    --task t01_terminal_smoke/t01_echo \
+```bash
+hermesbench run --use-hermes-config --model YOUR_MODEL \
+  --task t01_terminal_smoke/t01_echo --toolsets all
+
+hermesbench run --use-hermes-config --model YOUR_MODEL --all --toolsets all
+hermesbench report --run-id <run_id>
+```
+
+**Legacy engine** (local OpenAI server + tmux runner + statsd telemetry):
+
+```bash
+hermesbench run --engine legacy --task t01_terminal_smoke/t01_echo \
     --model qwen2.5-coder-7b-instruct-q4_k_m \
     --base-url http://127.0.0.1:8080/v1
-
-# 4. Run all 43 tasks
-python3 -m hermesbench run --all \
-    --model qwen2.5-coder-7b-instruct-q4_k_m \
-    --base-url http://127.0.0.1:8080/v1
-
-# 5. Render a task's cast to an X-ready GIF
-python3 -m hermesbench render \
-    traces/<run_id>/t01_terminal_smoke/t01_echo/trace.cast \
-    --format gif --out t01.gif
 ```
 
 ## CLI
 
 | Command | What it does |
 |---|---|
-| `hermesbench list` | List all 43 tasks |
+| `hermesbench setup` | Create `.venv` and editable install |
+| `hermesbench doctor --install` | pip install missing Python dependencies |
+| **`hermesbench run`** | **Benchmark** via real Hermes Agent (`run_agent.py`, default `--engine real`) |
+| `hermesbench run --engine legacy` | Legacy GitHub runner (tmux + statsd) |
+| `hermesbench report` | REPORT.md + video timeline from `summary.json` |
+| `hermesbench list` | List all 48 tasks |
 | `hermesbench list --difficulty 2` | Filter by difficulty |
 | `hermesbench validate` | Lint all task.yaml + verifier files |
 | `hermesbench run --task <id>` | Run one task |

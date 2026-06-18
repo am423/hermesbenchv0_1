@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermesbench"
-version = "0.2.0"
+version = "0.3.0"
 description = "HermesBench — benchmark local models on real Hermes Agent tool-calling patterns"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,14 +28,16 @@ dependencies = [
     "click>=8.1",
     "aiohttp>=3.9",
     "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
     "ruff>=0.4",
     "mypy>=1.10",
+    "pre-commit>=3.7",
 ]
-
-[project.optional-dependencies]
-dev = ["pre-commit>=3.7", "uv>=0.1"]
 
 [project.scripts]
 hermesbench = "hermesbench.cli:main"

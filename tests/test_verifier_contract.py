@@ -92,4 +92,7 @@ def test_template_verifier_passes_contract() -> None:
         assert hasattr(result, "reason") and hasattr(result, "details")
         # The template expects a file to exist; tmp dir is empty so it FAILS.
         # That's fine — the contract is just "returns a VerifierResult-like."
-        assert result.status in VerifierStatus
+        status_val = (
+            result.status.value if hasattr(result.status, "value") else result.status
+        )
+        assert status_val in {s.value for s in VerifierStatus}
