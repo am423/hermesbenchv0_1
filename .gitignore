@@ -9,3 +9,6 @@ hermesbench.yaml
 *.mp4
 *.gif
 *.cast
+video/hf-grok-composer/
+video/*_event_timeline.json
+video/work-*/

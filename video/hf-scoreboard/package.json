@@ -1,0 +1,11 @@
+{
+  "name": "hf-scoreboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.6.31 preview",
+    "check": "npx --yes hyperframes@0.6.31 lint && npx --yes hyperframes@0.6.31 validate && npx --yes hyperframes@0.6.31 inspect",
+    "render": "npx --yes hyperframes@0.6.31 render",
+    "publish": "npx --yes hyperframes@0.6.31 publish"
+  }
+}

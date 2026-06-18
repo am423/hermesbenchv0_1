@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent Benchmark — nex-n2-pro</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg-deep: #0A0C14;
+    --bg-panel: #131620;
+    --bg-terminal: #0D1117;
+    --border: #1E2330;
+    --pass: #00FF88;
+    --fail: #FF3355;
+    --accent: #00D4FF;
+    --gold: #FFB800;
+    --text-primary: #E8EAED;
+    --text-muted: #6B7280;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+    width: 1920px;
+    height: 1080px;
+  }
+
+  #composition {
+    width: 1920px;
+    height: 1080px;
+    position: relative;
+  }
+
+  /* Terminal area */
+  #terminal-area {
+    position: absolute;
+    left: 0; top: 0;
+    width: 960px; height: 1080px;
+    background: var(--bg-terminal);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #terminal-header {
+    height: 44px;
+    background: #161B22;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .term-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .term-dot.red { background: #FF5F56; }
+  .term-dot.yellow { background: #FFBD2E; }
+  .term-dot.green { background: #27C93F; }
+  #term-title {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    margin-left: 12px;
+  }
+
+  #terminal-body {
+    flex: 1;
+    padding: 20px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    scrollbar-width: none;
+  }
+  #terminal-body::-webkit-scrollbar { display: none; }
+
+  .term-prompt { color: var(--accent); }
+  .term-cmd { color: var(--text-primary); }
+  .term-output { color: var(--text-muted); }
+  .term-highlight { color: var(--pass); }
+  .term-error { color: var(--fail); }
+
+  .term-block {
+    position: absolute;
+    width: calc(100% - 64px);
+    opacity: 0;
+  }
+
+  .term-pass-stamp {
+    display: inline-block;
+    color: var(--pass);
+    font-weight: 700;
+    border: 1px solid var(--pass);
+    padding: 2px 10px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    margin-left: 8px;
+  }
+
+  .term-fail-stamp {
+    display: inline-block;
+    color: var(--fail);
+    font-weight: 700;
+    border: 1px solid var(--fail);
+    padding: 2px 10px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    margin-left: 8px;
+  }
+
+  /* Scoreboard sidebar */
+  #scoreboard {
+    position: absolute;
+    right: 0; top: 0;
+    width: 960px; height: 1080px;
+    background: var(--bg-panel);
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border);
+  }
+
+  #sb-header {
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #sb-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  #sb-model {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.3;
+  }
+
+  #sb-model-provider {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    display: block;
+    margin-top: 2px;
+  }
+
+  #sb-stats {
+    display: flex;
+    gap: 40px;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .sb-stat { text-align: center; }
+  .sb-stat-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .sb-stat-val.pass-val { color: var(--pass); }
+  .sb-stat-val.fail-val { color: var(--fail); }
+  .sb-stat-label {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  #sb-progress {
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #sb-progress-label {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  #sb-progress-track {
+    height: 6px;
+    background: var(--border);
+    position: relative;
+  }
+
+  #sb-progress-fill {
+    height: 100%;
+    background: var(--pass);
+    width: 0%;
+    transition: none;
+    position: relative;
+  }
+
+  #sb-progress-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: -2px;
+    width: 10px; height: 10px;
+    background: var(--pass);
+    box-shadow: 0 0 12px var(--pass);
+  }
+
+  /* Task list */
+  #sb-task-list {
+    flex: 1;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    padding: 12px 0;
+    position: relative;
+    scrollbar-width: none;
+    scroll-behavior: auto;
+    min-height: 0;
+  }
+  #sb-task-list::-webkit-scrollbar { display: none; }
+
+  #sb-task-inner {
+    padding: 0 32px;
+  }
+
+  .sb-task-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(30, 35, 48, 0.4);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    opacity: 0;
+  }
+
+  .sb-task-id {
+    color: var(--text-muted);
+    font-size: 11px;
+    min-width: 70px;
+  }
+
+  .sb-task-name {
+    color: var(--text-primary);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sb-task-status {
+    opacity: 0;
+    font-weight: 700;
+    font-size: 12px;
+    min-width: 44px;
+    text-align: right;
+  }
+  .sb-task-status.pass { color: var(--pass); }
+  .sb-task-status.fail { color: var(--fail); }
+
+  .sb-family-header {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+    padding: 14px 32px 6px;
+    opacity: 0;
+  }
+
+  .sb-family-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 32px 0;
+    margin-bottom: 4px;
+    opacity: 0;
+    transform: translateX(40px);
+  }
+
+  .sb-family-bar-fill {
+    height: 4px;
+    background: var(--pass);
+    flex: none;
+  }
+
+  .sb-family-bar-empty {
+    height: 4px;
+    background: var(--fail);
+    flex: none;
+  }
+
+  .sb-family-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 100px;
+  }
+
+  .sb-family-count {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+    min-width: 50px;
+    text-align: right;
+  }
+
+  /* Hook overlay */
+  #hook-overlay {
+    position: absolute;
+    left: 0; top: 0;
+    width: 1920px; height: 1080px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  #hook-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 72px;
+    color: var(--text-primary);
+    text-align: center;
+    line-height: 1.1;
+    letter-spacing: -1px;
+    text-shadow: 0 0 60px rgba(0, 212, 255, 0.3);
+    opacity: 0;
+  }
+
+  #hook-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    color: var(--accent);
+    text-align: center;
+    margin-top: 20px;
+    opacity: 0;
+  }
+
+  .hook-highlight { color: var(--pass); }
+  .hook-accent { color: var(--accent); }
+
+  /* Final score reveal */
+  #final-overlay {
+    position: absolute;
+    left: 0; top: 0;
+    width: 1920px; height: 1080px;
+    background: var(--bg-deep);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #final-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 96px;
+    font-weight: 700;
+    color: var(--pass);
+    line-height: 1;
+  }
+
+  #final-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 22px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    opacity: 0;
+  }
+
+  #final-model {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    color: var(--accent);
+    margin-top: 6px;
+    opacity: 0;
+  }
+
+  #final-families {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 24px;
+    max-width: 1100px;
+    justify-content: center;
+    opacity: 0;
+  }
+
+  .final-family-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    min-width: 140px;
+    text-align: center;
+  }
+
+  .final-family-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .final-family-bar-outer {
+    height: 4px;
+    background: var(--border);
+    margin: 4px 0;
+    display: flex;
+  }
+
+  .final-family-pass { background: var(--pass); height: 100%; }
+  .final-family-fail { background: var(--fail); height: 100%; }
+
+  #final-cta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    color: var(--accent);
+    margin-top: 24px;
+    opacity: 0;
+  }
+
+  /* Watermark */
+  #watermark {
+    position: absolute;
+    bottom: 40px;
+    right: 1000px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: rgba(255,255,255,0.5);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Status bar */
+  #status-bar {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 960px; height: 32px;
+    background: #161B22;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    gap: 16px;
+    z-index: 50;
+  }
+
+  #status-text { flex: 1; }
+  #status-elapsed { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div id="composition"
+     data-composition-id="main"
+     data-width="1920"
+     data-height="1080"
+     data-start="0"
+     data-duration="65"
+     data-track-index="0"
+     class="clip">
+
+  <!-- Terminal Area -->
+  <div id="terminal-area">
+    <div id="terminal-header">
+      <span class="term-dot red"></span>
+      <span class="term-dot yellow"></span>
+      <span class="term-dot green"></span>
+      <span id="term-title">hermesbench — nex-agi/nex-n2-pro:free</span>
+    </div>
+    <div id="terminal-body">
+      <div id="term-smoke" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ TERMINAL SMOKE — 5 tasks</div>
+        <div><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="echo hello-hermesbench")</span></div>
+        <div class="term-output">→ hello-hermesbench</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="ls -la")</span></div>
+        <div class="term-output">→ total 24 · tasks/ fixtures/ README.md</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="python3 -m py_compile script.py")</span></div>
+        <div class="term-output">→ Syntax OK</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="cat data.txt | grep error | wc -l")</span></div>
+        <div class="term-output">→ 7</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="echo $HERMES_HOME")</span></div>
+        <div class="term-output">→ /home/am/.hermes</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+      </div>
+
+      <div id="term-file-read" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ FILE READ — 6 tasks</div>
+        <div><span class="term-prompt">&gt;</span> <span class="term-cmd">read_file(path="script.py", offset=1, limit=50)</span></div>
+        <div class="term-output" style="font-size:12px; line-height:1.4">
+          → 1|#!/usr/bin/env python3<br>
+          → 2|"""Module docstring."""<br>
+          → 3|import os, sys, json<br>
+          → ... 47 more lines
+        </div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">read_file(path="data.csv", offset=80, limit=20)</span></div>
+        <div class="term-output">→ Read 20 lines from line 80</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">read_file × 3 parallel (a.txt, b.txt, c.txt)</span></div>
+        <div class="term-output">→ 120 lines · 85 lines · 200 lines — 3 concurrent calls</div>
+        <div><span class="term-pass-stamp">PASS ×3</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">read_file(path="missing.txt") → ERROR</span></div>
+        <div class="term-error">→ FileNotFoundError — recovered via search_files</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+      </div>
+
+      <div id="term-patch" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ PATCH EDIT — 5 tasks</div>
+        <div><span class="term-prompt">&gt;</span> <span class="term-cmd">patch(path="calc.py", old="return a/b", new="if b==0: raise ValueError")</span></div>
+        <div class="term-output">→ 1 file changed, 3 insertions(+), 1 deletion(-)</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">patch(path="dup.py", old="TODO", new="DONE")</span></div>
+        <div class="term-error">→ ERROR: dup_strings.py missing from worktree</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:8px"><span class="term-prompt">&gt;</span> <span class="term-cmd">write_file — model fell back to write_file</span></div>
+        <div class="term-error">→ ERROR: model did not use patch tool</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:8px"><span class="term-prompt">&gt;</span> <span class="term-cmd">patch(path="big.py", 30-line block)</span></div>
+        <div class="term-error">→ ERROR: big_block.py missing</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:8px"><span class="term-prompt">&gt;</span> <span class="term-cmd">patch(mode="patch", V4A format)</span></div>
+        <div class="term-error">→ ERROR: target.py missing</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+      </div>
+
+      <div id="term-search" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ SEARCH GREP / WRITE — 10 tasks</div>
+        <div><span class="term-prompt">&gt;</span> <span class="term-cmd">search_files(pattern="TODO", path=".", target="content")</span></div>
+        <div class="term-output">→ 12 matches in 5 files</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">search_files(pattern="def ", file_glob="*.py", output_mode="count")</span></div>
+        <div class="term-error">→ FAIL: model did not use search_files</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">&gt;</span> <span class="term-cmd">write_file(path="greeting.txt", content="hello world")</span></div>
+        <div class="term-error">→ FAIL: greeting.txt not created</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:8px"><span class="term-prompt">&gt;</span> <span class="term-cmd">write_file(path="data/out/result.json", nested)</span></div>
+        <div class="term-output">→ file written at nested path</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+      </div>
+
+      <div id="term-exec" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ EXECUTE CODE / PROCESS / TODO / WEB / MEMORY — 22 tasks</div>
+        <div><span class="term-prompt">&gt;&gt;&gt;</span> <span class="term-cmd">execute_code: 3**5 + 17</span></div>
+        <div class="term-output">→ 260</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">&gt;&gt;&gt;</span> <span class="term-cmd">execute_code: pd.read_csv('data.csv').agg('mean')</span></div>
+        <div class="term-output" style="font-size:12px">→ col_a: 42.3 | col_b: 17.8 | col_c: 91.2</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">&gt;&gt;&gt;</span> <span class="term-cmd">execute_code: train sklearn model</span></div>
+        <div class="term-error">→ FAIL: model did not use execute_code</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">$</span> <span class="term-cmd">process(action="list") / process(action="kill")</span></div>
+        <div class="term-output">→ 3 bg processes · killed PID 8842</div>
+        <div><span class="term-pass-stamp">PASS</span> <span class="term-fail-stamp" style="margin-left:8px">FAIL</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">$</span> <span class="term-cmd">todo(merge=false, todos=[{4-step plan}])</span></div>
+        <div class="term-output">→ 4 items created · status updated · replanned mid-flight</div>
+        <div><span class="term-pass-stamp">PASS ×2</span> <span class="term-fail-stamp" style="margin-left:8px">FAIL ×1</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">$</span> <span class="term-cmd">web_search(query="...") / web_extract(urls=[...])</span></div>
+        <div class="term-output">→ search result found · content extracted</div>
+        <div><span class="term-pass-stamp">PASS ×2</span> <span class="term-fail-stamp" style="margin-left:8px">FAIL ×1</span></div>
+        <div style="margin-top:10px"><span class="term-prompt">$</span> <span class="term-cmd">memory(action="add", target="memory")</span></div>
+        <div class="term-output">→ fact saved · recall: model did not use memory</div>
+        <div><span class="term-pass-stamp">PASS ×1</span> <span class="term-fail-stamp" style="margin-left:8px">FAIL ×2</span></div>
+      </div>
+
+      <div id="term-final" class="term-block" style="top:24px; left:32px;">
+        <div style="color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:8px">▶ ERROR RECOVERY — 3 tasks</div>
+        <div><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="cat /root/secret.txt")</span></div>
+        <div class="term-error">→ PermissionError — recovered with chmod</div>
+        <div><span class="term-pass-stamp">PASS</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">patch — ambiguous match → read_file first</span></div>
+        <div class="term-error">→ FAIL: model did not use both patch and read_file</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+        <div style="margin-top:12px"><span class="term-prompt">$</span> <span class="term-cmd">terminal(command="curl http://localhost:8765/")</span></div>
+        <div class="term-error">→ terminal safety scan blocked HTTP · expected retry, got 1</div>
+        <div><span class="term-fail-stamp">FAIL</span></div>
+      </div>
+      <div id="term-complete" class="term-block" style="top:24px; left:32px; text-align:center;">
+        <span style="font-size:20px; color:var(--pass); font-weight:700">▌BENCHMARK COMPLETE</span>
+      </div>
+    </div>
+    <div id="status-bar">
+      <span id="status-text">Initializing benchmark runner...</span>
+      <span>|</span>
+      <span>Elapsed: <span id="status-elapsed">00:00</span></span>
+      <span>|</span>
+      <span>Tasks: <span id="status-tasks">0/48</span></span>
+    </div>
+  </div>
+
+  <!-- Scoreboard -->
+  <div id="scoreboard">
+    <div id="sb-header">
+      <div id="sb-title">Live Scoreboard</div>
+      <div id="sb-model">
+        nex-agi/nex-n2-pro:free
+        <span id="sb-model-provider">via kilocode</span>
+      </div>
+    </div>
+    <div id="sb-stats">
+      <div class="sb-stat">
+        <div class="sb-stat-val pass-val" id="counter-pass">0</div>
+        <div class="sb-stat-label">Pass</div>
+      </div>
+      <div class="sb-stat">
+        <div class="sb-stat-val fail-val" id="counter-fail">0</div>
+        <div class="sb-stat-label">Fail</div>
+      </div>
+      <div class="sb-stat">
+        <div class="sb-stat-val" style="color:var(--gold)" id="counter-total">0</div>
+        <div class="sb-stat-label">Total</div>
+      </div>
+      <div class="sb-stat">
+        <div class="sb-stat-val" style="color:var(--accent)" id="counter-rate">0%</div>
+        <div class="sb-stat-label">Rate</div>
+      </div>
+    </div>
+    <div id="sb-progress">
+      <div id="sb-progress-label">
+        <span>Progress</span>
+        <span id="sb-progress-pct">0%</span>
+      </div>
+      <div id="sb-progress-track">
+        <div id="sb-progress-fill"></div>
+      </div>
+    </div>
+    <div id="sb-task-list">
+      <div id="sb-task-inner">
+        <div class="sb-family-header">Terminal Smoke</div>
+        <div class="sb-task-row"><span class="sb-task-id">t01_echo</span><span class="sb-task-name">Echo a string</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t02_ls</span><span class="sb-task-name">List files</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t03_compile</span><span class="sb-task-name">Syntax check</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t04_pipeline</span><span class="sb-task-name">Pipe cat→grep→wc</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t05_env_check</span><span class="sb-task-name">Check env var</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">File Read</div>
+        <div class="sb-task-row"><span class="sb-task-id">t06_read_head</span><span class="sb-task-name">Read first 50 lines</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t07_read_tail</span><span class="sb-task-name">Read last 20 lines</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t08_read_paginated</span><span class="sb-task-name">Read in 3 chunks</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t09_read_missing</span><span class="sb-task-name">Recover missing file</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t10_read_nested</span><span class="sb-task-name">Deep nested path</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t11_read_parallel</span><span class="sb-task-name">Read 3 files in 1 turn</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Patch Edit</div>
+        <div class="sb-task-row"><span class="sb-task-id">t12_patch_basic</span><span class="sb-task-name">Zero-division check</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t13_patch_ambiguous</span><span class="sb-task-name">Duplicate string</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t14_patch_unicode</span><span class="sb-task-name">Non-ASCII patch</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t15_patch_multiline</span><span class="sb-task-name">30-line block</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t16_patch_v4a</span><span class="sb-task-name">V4A patch format</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-family-header">Search Grep</div>
+        <div class="sb-task-row"><span class="sb-task-id">t17_search_basic</span><span class="sb-task-name">Find TODO files</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t18_search_glob</span><span class="sb-task-name">Search .py files</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t19_search_mode</span><span class="sb-task-name">output_mode: count</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t20_search_regex</span><span class="sb-task-name">Regex pattern</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t21_search_nomatch</span><span class="sb-task-name">Handle no-match</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Write New</div>
+        <div class="sb-task-row"><span class="sb-task-id">t22_write_basic</span><span class="sb-task-name">Write new file</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t23_write_overwrite</span><span class="sb-task-name">Overwrite file</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t24_write_large</span><span class="sb-task-name">Write 10K lines</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t25_write_unicode</span><span class="sb-task-name">Non-ASCII write</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t26_write_nested</span><span class="sb-task-name">Nested path write</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Process Mgmt</div>
+        <div class="sb-task-row"><span class="sb-task-id">t27_proc_list</span><span class="sb-task-name">List processes</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t28_proc_kill</span><span class="sb-task-name">Kill leaked process</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t29_proc_poll</span><span class="sb-task-name">Poll running proc</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t30_proc_pipeline</span><span class="sb-task-name">Parse structured output</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t31_proc_zombie</span><span class="sb-task-name">Detect process tree</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Todo Plan</div>
+        <div class="sb-task-row"><span class="sb-task-id">t32_todo_plan</span><span class="sb-task-name">4-step task plan</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t33_todo_update</span><span class="sb-task-name">Update todo status</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t34_todo_replan</span><span class="sb-task-name">Replan mid-flight</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Execute Code</div>
+        <div class="sb-task-row"><span class="sb-task-id">t35_exec_math</span><span class="sb-task-name">Compute in REPL</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t36_exec_pandas</span><span class="sb-task-name">Aggregate CSV</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t37_exec_debug</span><span class="sb-task-name">Find bug via code</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t38_exec_datascience</span><span class="sb-task-name">Train sklearn model</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t39_exec_stateful</span><span class="sb-task-name">REPL state survives</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-family-header">Web Lookup</div>
+        <div class="sb-task-row"><span class="sb-task-id">t40_web_search</span><span class="sb-task-name">Web search fact</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t41_web_extract</span><span class="sb-task-name">Extract URL content</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t42_web_noresult</span><span class="sb-task-name">Handle empty search</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-family-header">Memory Facts</div>
+        <div class="sb-task-row"><span class="sb-task-id">t43_mem_save</span><span class="sb-task-name">Save fact to memory</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t44_mem_recall</span><span class="sb-task-name">Recall across turns</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t45_mem_dedup</span><span class="sb-task-name">Don't re-save fact</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-family-header">Error Recovery</div>
+        <div class="sb-task-row"><span class="sb-task-id">t46_err_perms</span><span class="sb-task-name">Permission error recover</span><span class="sb-task-status pass">PASS</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t47_err_ambiguous</span><span class="sb-task-name">Fuzzy patch disambig</span><span class="sb-task-status fail">FAIL</span></div>
+        <div class="sb-task-row"><span class="sb-task-id">t48_err_transient</span><span class="sb-task-name">Retry transient error</span><span class="sb-task-status fail">FAIL</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hook overlay -->
+  <div id="hook-overlay">
+    <div>
+      <div id="hook-text">
+        48 TASKS.<br>
+        <span class="hook-highlight">ONE MODEL.</span><br>
+        <span class="hook-accent">NO EXCUSES.</span>
+      </div>
+      <div id="hook-sub">nex-agi/nex-n2-pro:free — hermesbench v0.1</div>
+    </div>
+  </div>
+
+  <!-- Final overlay -->
+  <div id="final-overlay">
+    <div id="final-score">32/48</div>
+    <div id="final-sub">Tasks Passed</div>
+    <div id="final-model">nex-agi/nex-n2-pro:free</div>
+    <div style="font-size:36px; color:var(--gold); margin-top:6px; font-family:'JetBrains Mono',monospace; font-weight:700">66.7%</div>
+    <div id="final-families">
+      <!-- Populated dynamically -->
+    </div>
+    <div id="final-cta">github.com/am423/hermesbenchv0_1 — benchmark your model</div>
+  </div>
+
+  <div id="watermark">@mr-r0b0t</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+// === SIMPLE COUNTER DATA ===
+// [time_sec, task_id, name, is_pass]
+var EVENTS = [
+  [4.0, "t01_echo", "Echo a string", true],
+  [4.8, "t02_ls", "List files", true],
+  [5.6, "t03_compile", "Syntax check", true],
+  [6.4, "t04_pipeline", "Pipe cat→grep→wc", true],
+  [7.2, "t05_env_check", "Check env var", true],
+  [10.0, "t06_read_head", "Read first 50 lines", true],
+  [10.8, "t07_read_tail", "Read last 20 lines", true],
+  [11.6, "t08_read_paginated", "Read in 3 chunks", true],
+  [12.8, "t09_read_missing", "Recover missing file", true],
+  [14.0, "t10_read_nested", "Deep nested path", true],
+  [15.2, "t11_read_parallel", "Read 3 files in 1 turn", true],
+  [18.0, "t12_patch_basic", "Zero-division check", true],
+  [19.5, "t13_patch_ambiguous", "Duplicate string", false],
+  [21.0, "t14_patch_unicode", "Non-ASCII patch", false],
+  [22.5, "t15_patch_multiline", "30-line block", false],
+  [24.0, "t16_patch_v4a", "V4A patch format", false],
+  [28.0, "t17_search_basic", "Find TODO files", true],
+  [29.0, "t18_search_glob", "Search .py files", true],
+  [30.5, "t19_search_mode", "output_mode: count", false],
+  [32.0, "t20_search_regex", "Regex pattern", true],
+  [33.5, "t21_search_nomatch", "Handle no-match", true],
+  [35.5, "t22_write_basic", "Write new file", false],
+  [36.5, "t23_write_overwrite", "Overwrite file", false],
+  [37.5, "t24_write_large", "Write 10K lines", false],
+  [38.5, "t25_write_unicode", "Non-ASCII write", true],
+  [39.5, "t26_write_nested", "Nested path write", true],
+  [42.0, "t27_proc_list", "List processes", true],
+  [43.0, "t28_proc_kill", "Kill leaked process", false],
+  [44.0, "t29_proc_poll", "Poll running proc", true],
+  [45.0, "t30_proc_pipeline", "Parse structured output", true],
+  [46.0, "t31_proc_zombie", "Detect process tree", true],
+  [47.5, "t32_todo_plan", "4-step task plan", false],
+  [48.3, "t33_todo_update", "Update todo status", true],
+  [49.1, "t34_todo_replan", "Replan mid-flight", true],
+  [50.0, "t35_exec_math", "Compute in REPL", true],
+  [50.8, "t36_exec_pandas", "Aggregate CSV", true],
+  [51.8, "t37_exec_debug", "Find bug via code", true],
+  [52.8, "t38_exec_datascience", "Train sklearn model", false],
+  [53.6, "t39_exec_stateful", "REPL state survives", true],
+  [55.0, "t40_web_search", "Web search fact", true],
+  [55.8, "t41_web_extract", "Extract URL content", true],
+  [56.8, "t42_web_noresult", "Handle empty search", false],
+  [57.8, "t43_mem_save", "Save fact to memory", true],
+  [58.8, "t44_mem_recall", "Recall across turns", false],
+  [59.8, "t45_mem_dedup", "Don't re-save fact", false],
+  [60.5, "t46_err_perms", "Permission error recovery", true],
+  [61.3, "t47_err_ambiguous", "Fuzzy patch disambig", false],
+  [62.1, "t48_err_transient", "Retry transient error", false],
+];
+
+var TOTAL_TASKS = EVENTS.length;
+
+// === COMPOSITION TIMELINE ===
+window.__timelines = window.__timelines || {};
+var tl = gsap.timeline({ paused: true });
+window.__timelines["main"] = tl;
+
+// --- HOOK (0-4s) ---
+tl.fromTo("#hook-text", { scale: 0.8, opacity: 0 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 0.2);
+tl.to("#hook-sub", { opacity: 1, duration: 0.4 }, 1.0);
+tl.to("#hook-text", { opacity: 0, scale: 1.1, duration: 0.4, ease: "power2.in" }, 3.2);
+tl.to("#hook-sub", { opacity: 0, duration: 0.3 }, 3.2);
+tl.to("#hook-overlay", { opacity: 0, duration: 0.2, display: "none" }, 3.8);
+
+// Watermark in at 0.5s
+tl.to("#watermark", { opacity: 0.7, duration: 0.5 }, 0.5);
+
+// Scoreboard header visible from start
+tl.set("#scoreboard", { opacity: 1 }, 0);
+
+// --- TERMINAL BLOCKS ---
+tl.to("#term-smoke", { opacity: 1, duration: 0.3 }, 4.0);
+tl.to("#term-smoke", { opacity: 0, duration: 0.3 }, 8.5);
+tl.to("#term-file-read", { opacity: 1, duration: 0.3 }, 9.0);
+tl.to("#term-file-read", { opacity: 0, duration: 0.3 }, 16.5);
+tl.to("#term-patch", { opacity: 1, duration: 0.3 }, 17.0);
+tl.to("#term-patch", { opacity: 0, duration: 0.3 }, 26.5);
+tl.to("#term-search", { opacity: 1, duration: 0.3 }, 27.0);
+tl.to("#term-search", { opacity: 0, duration: 0.3 }, 35.5);
+tl.to("#term-exec", { opacity: 1, duration: 0.3 }, 36.0);
+tl.to("#term-exec", { opacity: 0, duration: 0.3 }, 59.5);
+tl.to("#term-final", { opacity: 1, duration: 0.3 }, 59.0);
+tl.to("#term-final", { opacity: 0, duration: 0.3 }, 63.5);
+
+// --- SCOREBOARD COUNTERS ---
+var counterPass = document.getElementById("counter-pass");
+var counterFail = document.getElementById("counter-fail");
+var counterTotal = document.getElementById("counter-total");
+var counterRate = document.getElementById("counter-rate");
+var progressFill = document.getElementById("sb-progress-fill");
+var progressPct = document.getElementById("sb-progress-pct");
+var statusText = document.getElementById("status-text");
+var statusTasks = document.getElementById("status-tasks");
+var statusElapsed = document.getElementById("status-elapsed");
+
+// Pre-select all task rows (static HTML, hidden via CSS opacity:0)
+var allRows = document.querySelectorAll("#sb-task-inner .sb-task-row");
+var taskList = document.getElementById("sb-task-list");
+
+var passCount = 0;
+var failCount = 0;
+
+// Precompute scroll targets: where each row sits in the scrollable content.
+// offsetTop is relative to taskList (position:relative).
+var scrollTargets = [];
+for (var r = 0; r < allRows.length; r++) {
+  var rowTop = allRows[r].offsetTop;
+  // Target scrollTop so this row appears near the bottom of the viewport
+  scrollTargets.push(Math.max(0, rowTop - taskList.clientHeight + 90));
+}
+
+// Update counters, reveal rows, and scroll at each event time
+EVENTS.forEach(function(ev, i) {
+  var time = ev[0];
+  var taskId = ev[1];
+  var name = ev[2];
+  var isPass = ev[3];
+  var row = allRows[i];
+  var prevTarget = i > 0 ? scrollTargets[i-1] : 0;
+  var target = scrollTargets[i];
+
+  // Start scroll toward this row's position BEFORE revealing the row
+  tl.to(taskList, { scrollTop: target, duration: 0.5, ease: "power2.out" }, time);
+
+  // Reveal row slightly after scroll starts
+  tl.fromTo(row, { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.25, ease: "power2.out" }, time + 0.15);
+
+  // Glow pulse on status
+  var statusEl = row.querySelector(".sb-task-status");
+  if (statusEl) {
+    var glowColor = isPass ? "#00FF88" : "#FF3355";
+    tl.fromTo(statusEl, { textShadow: "0 0 12px " + glowColor }, { textShadow: "0 0 0px " + glowColor, duration: 0.4 }, time + 0.4);
+  }
+
+  // Update counters
+  tl.call(function() {
+    if (isPass) passCount++; else failCount++;
+    var total = i + 1;
+    var rate = Math.round(passCount / total * 100);
+
+    counterPass.textContent = passCount;
+    counterFail.textContent = failCount;
+    counterTotal.textContent = total;
+    counterRate.textContent = rate + "%";
+    statusTasks.textContent = total + "/" + TOTAL_TASKS;
+    statusText.textContent = "Task: " + taskId + " — " + name + " → " + (isPass ? "PASS" : "FAIL");
+    progressPct.textContent = Math.round(total / TOTAL_TASKS * 100) + "%";
+
+    var mins = Math.floor(time / 60);
+    var secs = Math.floor(time % 60);
+    statusElapsed.textContent = String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
+  }, null, time);
+
+  // Counter pulse
+  if (isPass) {
+    tl.fromTo(counterPass, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: "back.out(2)" }, time);
+  } else {
+    tl.fromTo(counterFail, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: "back.out(2)" }, time);
+  }
+
+  // Progress bar
+  tl.to(progressFill, { width: ((i+1) / TOTAL_TASKS * 100) + "%", duration: 0.4, ease: "power2.out" }, time);
+});
+
+// --- FINAL REVEAL (62-65s) ---
+// Family breakdown from benchmark results
+var families = {
+  "Terminal Smoke": { pass: 5, fail: 0 },
+  "File Read": { pass: 6, fail: 0 },
+  "Patch Edit": { pass: 1, fail: 4 },
+  "Search Grep": { pass: 4, fail: 1 },
+  "Write New": { pass: 2, fail: 3 },
+  "Process Mgmt": { pass: 4, fail: 1 },
+  "Todo Plan": { pass: 2, fail: 1 },
+  "Execute Code": { pass: 4, fail: 1 },
+  "Web Lookup": { pass: 2, fail: 1 },
+  "Memory Facts": { pass: 1, fail: 2 },
+  "Error Recovery": { pass: 1, fail: 2 }
+};
+
+var finalFamiliesEl = document.getElementById("final-families");
+var famKeys = Object.keys(families);
+famKeys.forEach(function(fam, idx) {
+  var f = families[fam];
+  var total = f.pass + f.fail;
+  var passPct = Math.round(f.pass / total * 100);
+  var cardEl = document.createElement("div");
+  cardEl.className = "final-family-card";
+  cardEl.innerHTML =
+    '<div class="final-family-name">' + fam + '</div>' +
+    '<div style="font-family:JetBrains Mono,monospace;font-size:16px;color:var(--text-primary);margin:4px 0">' + f.pass + '/' + total + '</div>' +
+    '<div class="final-family-bar-outer">' +
+      '<div class="final-family-pass" style="width:' + passPct + '%"></div>' +
+      '<div class="final-family-fail" style="width:' + (100-passPct) + '%"></div>' +
+    '</div>';
+  cardEl.style.opacity = "0";
+  cardEl.style.transform = "translateY(20px)";
+  finalFamiliesEl.appendChild(cardEl);
+
+  tl.to(cardEl, { opacity: 1, y: 0, duration: 0.3, ease: "back.out(1.4)" }, 62.5 + idx * 0.15);
+});
+
+// Final overlay entrance
+tl.to("#final-overlay", { opacity: 1, display: "flex", duration: 0.5, ease: "power2.inOut" }, 62.0);
+tl.fromTo("#final-score", { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "back.out(1.7)" }, 62.2);
+tl.to("#final-sub", { opacity: 1, duration: 0.4 }, 62.6);
+tl.to("#final-model", { opacity: 1, duration: 0.4 }, 62.8);
+tl.to("#final-cta", { opacity: 1, duration: 0.5 }, 63.5);
+
+// Pulse the final score
+tl.to("#final-score", { textShadow: "0 0 40px rgba(0,255,136,0.6)", duration: 0.5 }, 63.0);
+tl.to("#final-score", { textShadow: "0 0 10px rgba(0,255,136,0.2)", duration: 0.5 }, 63.8);
+
+// Fade all out at end
+tl.to("#composition", { opacity: 0, duration: 0.4 }, 64.5);
+</script>
+</body>
+</html>
