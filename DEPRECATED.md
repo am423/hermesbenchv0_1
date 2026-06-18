@@ -8,6 +8,6 @@ Use this clone URL going forward:
 git clone https://github.com/am423/hermes-bench-tool-call.git
 ```
 
-Local path `~/projects/hermesbenchv0_1` is a legacy working copy; use `~/projects/hermes-bench-tool-call` for development.
+Local path `~/projects/hermesbenchv0_1` should be a **symlink** to `~/projects/hermes-bench-tool-call` (one working tree). An archived duplicate may exist as `~/projects/hermesbenchv0_1.archived-local-*`.
 
 See [AGENTS.md](./AGENTS.md) and [docs/CHANGELOG.md](./docs/CHANGELOG.md) for v0.3+.
