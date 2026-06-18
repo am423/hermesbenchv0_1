@@ -1,0 +1,105 @@
+{
+  "name": "grok_composer_weak_categories",
+  "source_run_id": "grok_composer_real_20260617_130400",
+  "model": "grok-composer-2.5-fast",
+  "pass_rate": "31/48",
+  "categories": [
+    {
+      "id": "t03_patch_edit",
+      "pass": 1,
+      "fail": 4,
+      "failed_tasks": [
+        "t03_patch_edit/t02_ambiguous",
+        "t03_patch_edit/t03_unicode",
+        "t03_patch_edit/t04_multiline",
+        "t03_patch_edit/t05_v4a"
+      ]
+    },
+    {
+      "id": "t08_execute_code",
+      "pass": 1,
+      "fail": 4,
+      "failed_tasks": [
+        "t08_execute_code/t02_pandas",
+        "t08_execute_code/t03_debug",
+        "t08_execute_code/t04_datascience",
+        "t08_execute_code/t05_stateful"
+      ]
+    },
+    {
+      "id": "t11_error_recovery",
+      "pass": 0,
+      "fail": 3,
+      "failed_tasks": [
+        "t11_error_recovery/t01_perms",
+        "t11_error_recovery/t02_ambiguous",
+        "t11_error_recovery/t03_transient"
+      ]
+    },
+    {
+      "id": "t02_file_read",
+      "pass": 5,
+      "fail": 1,
+      "failed_tasks": [
+        "t02_file_read/t03_read_paginated"
+      ]
+    },
+    {
+      "id": "t04_search_grep",
+      "pass": 4,
+      "fail": 1,
+      "failed_tasks": [
+        "t04_search_grep/t04_regex"
+      ]
+    },
+    {
+      "id": "t06_process_mgmt",
+      "pass": 4,
+      "fail": 1,
+      "failed_tasks": [
+        "t06_process_mgmt/t02_kill"
+      ]
+    },
+    {
+      "id": "t07_todo_plan",
+      "pass": 2,
+      "fail": 1,
+      "failed_tasks": [
+        "t07_todo_plan/t02_update"
+      ]
+    },
+    {
+      "id": "t09_web_lookup",
+      "pass": 2,
+      "fail": 1,
+      "failed_tasks": [
+        "t09_web_lookup/t02_extract"
+      ]
+    },
+    {
+      "id": "t10_memory_facts",
+      "pass": 2,
+      "fail": 1,
+      "failed_tasks": [
+        "t10_memory_facts/t03_avoid_dup"
+      ]
+    },
+    {
+      "id": "t01_terminal_smoke",
+      "pass": 5,
+      "fail": 0,
+      "failed_tasks": []
+    },
+    {
+      "id": "t05_write_new",
+      "pass": 5,
+      "fail": 0,
+      "failed_tasks": []
+    }
+  ],
+  "rerun_category_flags": [
+    "t03_patch_edit",
+    "t08_execute_code",
+    "t11_error_recovery"
+  ]
+}
