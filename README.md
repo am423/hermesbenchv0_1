@@ -14,9 +14,10 @@ is this model at *using* hermes-agent?" — not just at generating text.
 
 ## What it does
 
-- **48 tasks across 11 categories** — terminal smoke, file read,
-  patch, search, write, process, todo, execute_code, web_lookup,
-  memory, error_recovery
+- **51 tasks** — 48 core tasks across 11 categories (terminal smoke,
+  file read, patch, search, write, process, todo, execute_code,
+  web_lookup, memory, error_recovery) plus **3** `t12_real_world`
+  integration tasks
 - **Runs the real `AIAgent` from `~/.hermes/hermes-agent/`** in a
   subprocess with a custom `tmux_isolated` environment backend
 - **Captures three artifacts per task run:**
@@ -71,11 +72,11 @@ hermesbench run --engine legacy --task t01_terminal_smoke/t01_echo \
 | **`hermesbench run`** | **Benchmark** via real Hermes Agent (`run_agent.py`, default `--engine real`) |
 | `hermesbench run --engine legacy` | Legacy GitHub runner (tmux + statsd) |
 | `hermesbench report` | REPORT.md + video timeline from `summary.json` |
-| `hermesbench list` | List all 48 tasks |
+| `hermesbench list` | List all 51 tasks |
 | `hermesbench list --difficulty 2` | Filter by difficulty |
 | `hermesbench validate` | Lint all task.yaml + verifier files |
 | `hermesbench run --task <id>` | Run one task |
-| `hermesbench run --all` | Run all 43 tasks |
+| `hermesbench run --all` | Run all 51 tasks |
 | `hermesbench run --all --dry-run` | Validate without spawning hermes (Q72) |
 | `hermesbench run --resume <run_id>` | Resume a crashed run (Q24) |
 | `hermesbench run --n-runs 3` | Run each task 3× for variance (Q34) |
