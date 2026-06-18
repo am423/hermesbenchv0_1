@@ -4,9 +4,9 @@ This file is for **coding agents** (Hermes, Cursor, Claude Code, etc.) working i
 
 ## What this repo is
 
-**HermesBench v0.1** benchmarks **models inside real [Hermes Agent](https://github.com/NousResearch/hermes-agent)** — tool use (terminal, patch, search, execute_code, web, memory, …), not chat-only QA.
+**HermesBench v0.3.0** (canonical repo: **https://github.com/am423/hermes-bench-tool-call**) benchmarks **models inside real [Hermes Agent](https://github.com/NousResearch/hermes-agent)** — tool use (terminal, patch, search, execute_code, web, memory, …), not chat-only QA.
 
-- **48 tasks** under `tasks/**/task.yaml` (11 categories, difficulties 1–3)
+- **51 tasks** under `tasks/**/task.yaml` (48 core categories + 3 `t12_real_world`, difficulties 1–3)
 - Each task: isolated git worktree, prompt, verifier under `tasks/.../verifier.py`
 - **Official benchmark command:** `hermesbench run` → spawns `run_agent.py` from the Hermes Agent checkout
 
@@ -27,7 +27,8 @@ traces/<run_id>/      # logs, trace.jsonl, worktrees
 scripts/bootstrap.sh  # Clone-and-run venv setup
 docs/GETTING_STARTED.md
 docs/PROVIDERS.md
-AGENTS.md             # This file
+docs/RUN_LAYOUT.md
+presets/               # Rerun presets (see presets/README.md)
 ```
 
 ## Prerequisites (check before benchmarking)
@@ -77,7 +78,7 @@ hermesbench run --use-hermes-config \
   --toolsets all
 ```
 
-### Full suite (48 tasks)
+### Full suite (51 tasks)
 
 ```bash
 hermesbench run --use-hermes-config \
@@ -85,6 +86,26 @@ hermesbench run --use-hermes-config \
   --all \
   --toolsets all \
   --run-id my_run_$(date +%Y%m%d)
+```
+
+### Resume a partial real run
+
+Skips tasks already **PASS** or **FAIL** in `results/<run_id>/summary.json`; merges new results into the same summary.
+
+```bash
+hermesbench run --resume my_run_20260618 --all --use-hermes-config --model YOUR_MODEL_ID
+
+hermesbench run --run-id my_run_20260618 --resume-skipped --category t03_patch_edit \
+  --use-hermes-config --model YOUR_MODEL_ID
+```
+
+See `docs/RUN_LAYOUT.md` for layout and legacy vs real resume behavior.
+
+### Legacy engine
+
+```bash
+hermesbench run --engine legacy --task t01_terminal_smoke/t01_echo \
+  --model local-model --base-url http://127.0.0.1:8080/v1
 ```
 
 ### Category
@@ -134,15 +155,19 @@ Artifacts:
 | `hermesbench doctor [--install] [--profile run]` | Environment + pip fixes |
 | `hermesbench validate` | Lint all `task.yaml` + verifiers |
 | `hermesbench list` | List tasks |
-| **`hermesbench run`** | **Real benchmark** (Hermes `run_agent.py`) |
+| **`hermesbench run`** | **Real benchmark** (Hermes `run_agent.py`, default `--engine real`) |
+| `hermesbench run --engine legacy` | Legacy tmux runner + statsd |
 | `hermesbench run-real` | Deprecated alias for `run` |
 | `hermesbench report --run-id ID` | REPORT + timeline + HF index |
-| `hermesbench score --path …` | Re-score existing trace dirs |
+| `hermesbench score --path …` | Re-score `results/<run_id>/` or `traces/<run_id>/<task>/` |
 
 ## Critical flags for `run`
 
 - **`--use-hermes-config`** — Use `~/.hermes/config.yaml` provider (xai-oauth, etc.). **Required** for OAuth models; avoids wrong `OPENAI_BASE_URL` overrides.
-- **`--toolsets all`** — Full tool surface (matches published 48-task runs). Narrow only for debugging.
+- **`--engine real|legacy`** — Default `real` uses `run_real.py`; `legacy` uses `runner.py`.
+- **`--resume <run_id>`** — (real) Continue that run id; skip completed PASS/FAIL tasks.
+- **`--resume-skipped`** — (real) With `--run-id`, same skip behavior without changing run id source.
+- **`--toolsets all`** — Full tool surface (matches published 51-task runs). Narrow only for debugging.
 - **`--enabled_toolsets`** is passed internally as a single Fire arg: `--enabled_toolsets=all`.
 - **`--hermes-agent-path`** — Override Hermes checkout.
 - **`--timeout-overhead`** — Seconds added to each task’s `timeout_seconds` (default 30).
@@ -197,5 +222,6 @@ Package version: `hermesbench/__init__.py` → `__version__`. Bump on CLI-breaki
 ## Links
 
 - Human onboarding: `docs/GETTING_STARTED.md`
+- Run layout & resume: `docs/RUN_LAYOUT.md`
 - Providers: `docs/PROVIDERS.md`
 - Hermes Agent docs: https://hermes-agent.nousresearch.com/docs

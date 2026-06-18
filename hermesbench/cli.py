@@ -140,6 +140,9 @@ def _invoke_benchmark_run(
     hermes_agent_path: Path | None,
     repo_root: Path | None,
     dry_run: bool,
+    resume: bool,
+    resume_run_id: str | None,
+    resume_skipped: bool,
 ) -> None:
     from hermesbench.run_real import run_real_benchmark
 
@@ -155,12 +158,38 @@ def _invoke_benchmark_run(
     if dry_run:
         if task_list is None:
             n = len(_discover_tasks(root))
-            console.print(f"[green]dry-run[/green]: would run all {n} tasks with model={model}")
+            label = f"all {n} tasks"
         else:
-            console.print(
-                f"[green]dry-run[/green]: would run {len(task_list)} task(s): {', '.join(task_list)}"
+            label = f"{len(task_list)} task(s): {', '.join(task_list)}"
+        if (resume or resume_skipped or resume_run_id) and (run_id or resume_run_id):
+            from hermesbench.run_real import (
+                _completed_tasks_by_id,
+                _load_existing_summary,
+                tasks_to_run_with_resume,
             )
+
+            rid = resume_run_id or run_id
+            summary_path = root / "results" / rid / "summary.json"
+            prior = _load_existing_summary(summary_path)
+            completed = _completed_tasks_by_id(prior) if prior else {}
+            if task_list is None:
+                all_specs = [_load_task(td) for td in _discover_tasks(root)]
+            else:
+                id_to = {_load_task(td).id: _load_task(td) for td in _discover_tasks(root)}
+                all_specs = [id_to[tid] for tid in task_list]
+            pending, skipped = tasks_to_run_with_resume(all_specs, completed_by_id=completed)
+            console.print(
+                f"[green]dry-run[/green]: resume {rid}: skip {len(skipped)}, "
+                f"run {len(pending)} with model={model}"
+            )
+            if pending:
+                console.print(f"  pending: {', '.join(t.id for t in pending)}")
+        else:
+            console.print(f"[green]dry-run[/green]: would run {label} with model={model}")
         raise SystemExit(0)
+
+    effective_run_id = run_id or resume_run_id
+    effective_resume = resume or bool(resume_run_id) or resume_skipped
 
     code = run_real_benchmark(
         repo_root=root,
@@ -168,11 +197,12 @@ def _invoke_benchmark_run(
         base_url=base_url,
         use_hermes_config=use_hermes_config,
         toolsets=toolsets,
-        run_id=run_id,
+        run_id=effective_run_id,
         task_ids=task_list,
         max_turns=max_turns,
         timeout_overhead=timeout_overhead,
         hermes_agent_path=hermes_agent_path,
+        resume=effective_resume,
     )
     raise SystemExit(code)
 
@@ -274,12 +304,24 @@ def _invoke_legacy_run(
 @click.option("--run-id", default=None, help="Results/traces directory name")
 @click.option("--task", "tasks", multiple=True, help="Task ID (repeatable)")
 @click.option("--category", "-c", default=None, help="Run all tasks in this category prefix")
-@click.option("--all", "run_all", is_flag=True, help="Run all 48 tasks")
+@click.option("--all", "run_all", is_flag=True, help="Run all 51 tasks")
 @click.option("--max-turns", type=int, default=None)
 @click.option("--timeout-overhead", type=int, default=30)
 @click.option("--hermes-agent-path", type=click.Path(path_type=Path), default=None)
 @click.option("--repo-root", type=click.Path(path_type=Path), default=None)
 @click.option("--dry-run", is_flag=True, help="List selected tasks without calling Hermes")
+@click.option(
+    "--resume",
+    "resume_run_id",
+    default=None,
+    help="(real engine) Run id to resume; skips PASS/FAIL in summary.json. "
+    "(legacy engine) resume directory (deprecated).",
+)
+@click.option(
+    "--resume-skipped",
+    is_flag=True,
+    help="(real engine) With --run-id, skip tasks already PASS/FAIL in summary.json",
+)
 @click.option(
     "--engine",
     type=click.Choice(["real", "legacy"]),
@@ -289,7 +331,6 @@ def _invoke_legacy_run(
 @click.option("--real-agent", is_flag=True, help="(legacy engine) Use real hermes-agent CLI")
 @click.option("--results-dir", "-r", default="./results", help="(legacy engine) Output directory")
 @click.option("--n-runs", "-n", type=int, default=1, help="(legacy engine) Run each task N times")
-@click.option("--resume", "resume_dir", default=None, help="(legacy engine) Resume from run dir")
 @click.option(
     "--config", "config_path", default=None, help="(legacy engine) Path to hermesbench.yaml"
 )
@@ -307,11 +348,12 @@ def run_benchmark_cmd(
     hermes_agent_path: Path | None,
     repo_root: Path | None,
     dry_run: bool,
+    resume_run_id: str | None,
+    resume_skipped: bool,
     engine: str,
     real_agent: bool,
     results_dir: str,
     n_runs: int,
-    resume_dir: str | None,
     config_path: str | None,
 ) -> None:
     """Run benchmark tasks (default: real Hermes Agent via run_agent.py)."""
@@ -326,7 +368,7 @@ def run_benchmark_cmd(
             real_agent=real_agent,
             results_dir=results_dir,
             n_runs=n_runs,
-            resume_dir=resume_dir,
+            resume_dir=resume_run_id,
             config_path=config_path,
             repo_root=repo_root,
         )
@@ -345,6 +387,9 @@ def run_benchmark_cmd(
         hermes_agent_path=hermes_agent_path,
         repo_root=repo_root,
         dry_run=dry_run,
+        resume=resume_skipped,
+        resume_run_id=resume_run_id,
+        resume_skipped=resume_skipped,
     )
 
 
@@ -393,6 +438,9 @@ def run_real_cmd(
         hermes_agent_path=hermes_agent_path,
         repo_root=repo_root,
         dry_run=dry_run,
+        resume=False,
+        resume_run_id=None,
+        resume_skipped=False,
     )
 
 

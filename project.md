@@ -1,5 +1,21 @@
 # hermesbenchv0.1 — Plan
 
+## Release status (2026-06-18)
+
+- **Canonical repository:** https://github.com/am423/hermes-bench-tool-call
+- **Package version:** v0.3.0 (`hermesbench/__init__.py`); v0.3.1 docs/resume/presets on branch `merge/v0.3-run-real-hyperframes`
+- **Default benchmark:** `hermesbench run` → real Hermes `run_agent.py` (`--engine real`)
+- **Task count:** 51 (48 core + 3 `t12_real_world`)
+- **Artifacts:** `results/<run_id>/summary.json`, `traces/<run_id>/<task_id>/` — see `docs/RUN_LAYOUT.md`
+- **Resume (real):** `--resume <run_id>` skips PASS/FAIL tasks and merges into existing summary
+- **Legacy engine:** `--engine legacy` (tmux runner); optional for local OpenAI gateway workflows
+- **Reporting:** `hermesbench report --run-id <id>`; re-score with `hermesbench score results/<run_id>/`
+- **Presets:** `presets/weak_categories_grok.json` + `presets/README.md` for category reruns
+- **Agent onboarding:** `AGENTS.md`, `docs/GETTING_STARTED.md`, `docs/PROVIDERS.md`
+- **Merge status:** v0.3 real-engine + HyperFrames reporting integrated; Phase 5 adds resume, run layout docs, presets README
+
+---
+
 A simple, reproducible benchmark for evaluating local models running inside the
 **Hermes Agent** harness. Captures full traces (every tool call + tool result)
 so the same dataset doubles as supervised fine-tuning (SFT) training data.

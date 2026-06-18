@@ -27,6 +27,8 @@ from hermesbench.types import TaskSpec
 
 REPO = Path(__file__).resolve().parent.parent
 
+FINAL_TASK_STATUSES = frozenset({"PASS", "FAIL"})
+
 
 DEFAULT_BASE_URL = "https://api.kilo.ai/api/gateway"
 DEFAULT_MODEL = "nex-agi/nex-n2-pro:free"
@@ -280,6 +282,59 @@ def _write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _load_existing_summary(summary_path: Path) -> dict[str, Any] | None:
+    if not summary_path.is_file():
+        return None
+    try:
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _completed_tasks_by_id(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for row in summary.get("tasks") or []:
+        if not isinstance(row, dict):
+            continue
+        task_id = row.get("task_id")
+        status = row.get("status")
+        if task_id and status in FINAL_TASK_STATUSES:
+            out[str(task_id)] = row
+    return out
+
+
+def _merge_task_rows(
+    selected_ids: list[str],
+    prior: dict[str, dict[str, Any]],
+    fresh: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    fresh_by_id = {str(row["task_id"]): row for row in fresh}
+    merged: list[dict[str, Any]] = []
+    for tid in selected_ids:
+        if tid in fresh_by_id:
+            merged.append(fresh_by_id[tid])
+        elif tid in prior:
+            merged.append(prior[tid])
+    return merged
+
+
+def tasks_to_run_with_resume(
+    tasks: list[TaskSpec],
+    *,
+    completed_by_id: dict[str, dict[str, Any]],
+) -> tuple[list[TaskSpec], list[dict[str, Any]]]:
+    """Return tasks still to execute and rows skipped from a prior summary."""
+    pending: list[TaskSpec] = []
+    skipped: list[dict[str, Any]] = []
+    for task in tasks:
+        prior = completed_by_id.get(task.id)
+        if prior is not None:
+            skipped.append(prior)
+        else:
+            pending.append(task)
+    return pending, skipped
+
+
 def run_real_benchmark(
     *,
     repo_root: Path | None = None,
@@ -292,6 +347,7 @@ def run_real_benchmark(
     timeout_overhead: int = 30,
     hermes_agent_path: Path | None = None,
     use_hermes_config: bool = False,
+    resume: bool = False,
 ) -> int:
     root = (repo_root or REPO).resolve()
     rid = run_id or f"real_model_{_now()}_{uuid.uuid4().hex[:8]}"
@@ -300,28 +356,56 @@ def run_real_benchmark(
     if not tasks:
         raise SystemExit("No tasks selected")
 
+    selected_ids = [t.id for t in tasks]
+    results_root = root / "results" / rid
+    traces_root = root / "traces" / rid
+    summary_path = results_root / "summary.json"
+
+    prior_summary = _load_existing_summary(summary_path) if resume else None
+    completed_by_id = _completed_tasks_by_id(prior_summary) if prior_summary else {}
+    pending_tasks, skipped_rows = tasks_to_run_with_resume(
+        tasks, completed_by_id=completed_by_id
+    )
+
     hermes_path = hermes_agent_path.resolve() if hermes_agent_path else find_hermes_agent()
     hermes_sha = get_hermes_sha(hermes_path)
     hermes_version = get_hermes_version(hermes_path)
 
-    results_root = root / "results" / rid
-    traces_root = root / "traces" / rid
     results_root.mkdir(parents=True, exist_ok=True)
     traces_root.mkdir(parents=True, exist_ok=True)
 
-    summary: dict[str, Any] = {
-        "run_id": rid,
-        "model": model,
-        "base_url": base_url,
-        "toolsets": toolsets,
-        "hermes_path": str(hermes_path),
-        "hermes_sha": hermes_sha,
-        "hermes_version": hermes_version,
-        "task_count": len(tasks),
-        "tasks": [],
-    }
+    if prior_summary and resume:
+        summary = dict(prior_summary)
+        summary.update(
+            {
+                "run_id": rid,
+                "model": model,
+                "base_url": base_url,
+                "toolsets": toolsets,
+                "hermes_path": str(hermes_path),
+                "hermes_sha": hermes_sha,
+                "hermes_version": hermes_version,
+                "task_count": len(tasks),
+                "resumed": True,
+                "skipped_task_count": len(skipped_rows),
+            }
+        )
+    else:
+        summary = {
+            "run_id": rid,
+            "model": model,
+            "base_url": base_url,
+            "toolsets": toolsets,
+            "hermes_path": str(hermes_path),
+            "hermes_sha": hermes_sha,
+            "hermes_version": hermes_version,
+            "task_count": len(tasks),
+            "tasks": [],
+        }
 
-    for task in tasks:
+    fresh_rows: list[dict[str, Any]] = []
+
+    for task in pending_tasks:
         task_started = time.time()
         task_dir = traces_root / task.id
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -365,25 +449,26 @@ def run_real_benchmark(
 
         elapsed = time.time() - task_started
 
-        summary["tasks"].append(
-            {
-                "task_id": task.id,
-                "name": task.name,
-                "difficulty": task.difficulty,
-                "status": verifier_result.status.value,
-                "score": verifier_result.score,
-                "reason": verifier_result.reason,
-                "elapsed_seconds": elapsed,
-                "exit_code": completed.returncode,
-                "worktree": str(worktree),
-                "raw_log": str(raw_log_path),
-                "trajectory": str(trajectory_path),
-                "trace": str(trace_path),
-                "verifier_result": str(verifier_path),
-            }
-        )
+        row = {
+            "task_id": task.id,
+            "name": task.name,
+            "difficulty": task.difficulty,
+            "status": verifier_result.status.value,
+            "score": verifier_result.score,
+            "reason": verifier_result.reason,
+            "elapsed_seconds": elapsed,
+            "exit_code": completed.returncode,
+            "worktree": str(worktree),
+            "raw_log": str(raw_log_path),
+            "trajectory": str(trajectory_path),
+            "trace": str(trace_path),
+            "verifier_result": str(verifier_path),
+        }
+        fresh_rows.append(row)
 
-        _write_json(results_root / f"{task.id.replace('/', '_')}.json", summary["tasks"][-1])
+        _write_json(results_root / f"{task.id.replace('/', '_')}.json", row)
+
+    summary["tasks"] = _merge_task_rows(selected_ids, completed_by_id, fresh_rows)
 
     passed = sum(1 for item in summary["tasks"] if item["status"] == "PASS")
     summary["passed"] = passed
@@ -416,6 +501,11 @@ def main() -> int:
         action="store_true",
         help="Use ~/.hermes/config.yaml provider (e.g. xai-oauth); omit base_url and OPENAI_* env.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="With --run-id, skip tasks already PASS/FAIL in results/<run_id>/summary.json.",
+    )
     args = parser.parse_args()
 
     return run_real_benchmark(
@@ -429,6 +519,7 @@ def main() -> int:
         timeout_overhead=args.timeout_overhead,
         hermes_agent_path=args.hermes_agent_path,
         use_hermes_config=args.use_hermes_config,
+        resume=bool(args.resume and args.run_id),
     )
 
 
