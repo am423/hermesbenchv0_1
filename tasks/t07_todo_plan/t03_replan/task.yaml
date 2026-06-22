@@ -5,7 +5,11 @@ difficulty: 3
 tags: [todo, replan]
 
 prompt: |
-  Start with a 4-step plan, then discover a new requirement mid-flight: also add type hints. Use `todo` to insert the new step.
+  Use the `todo` tool only. First create a 4-step plan for improving `add.py`:
+  read it, understand it, add a docstring, and verify syntax. Then, in a later
+  `todo` call with `merge=true`, simulate discovering a new requirement mid-flight
+  by inserting a fifth step: add type hints. Do not read files, patch files, or run
+  terminal commands; this task is only testing todo replanning.
 
 allowed_tools:
   - todo
