@@ -194,6 +194,22 @@ def _trajectory_to_trace(traj_path: Path, trace_path: Path) -> None:
     )
 
 
+def _select_trajectory_path(worktree: Path) -> Path | None:
+    """Return the best available run_agent trajectory artifact.
+
+    run_agent.py writes successful conversations to ``trajectory_samples.jsonl``
+    and failed/incomplete conversations to ``failed_trajectories.jsonl``. Failed
+    conversations can still contain valid tool calls that verifiers need when
+    scoring model behavior, so do not collapse them into empty traces.
+    """
+
+    for name in ("trajectory_samples.jsonl", "failed_trajectories.jsonl"):
+        path = worktree / name
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
+
 def _load_tasks(repo_root: Path, task_ids: list[str] | None) -> list[TaskSpec]:
     discovered = _discover_tasks(repo_root)
     if task_ids is None:
@@ -449,8 +465,9 @@ def run_real_benchmark(
             use_hermes_config=use_hermes_config,
         )
 
-        if trajectory_path.exists():
-            _trajectory_to_trace(trajectory_path, trace_path)
+        selected_trajectory_path = _select_trajectory_path(worktree)
+        if selected_trajectory_path is not None:
+            _trajectory_to_trace(selected_trajectory_path, trace_path)
         else:
             trace_path.write_text("", encoding="utf-8")
 
@@ -475,7 +492,8 @@ def run_real_benchmark(
             "exit_code": completed.returncode,
             "worktree": str(worktree),
             "raw_log": str(raw_log_path),
-            "trajectory": str(trajectory_path),
+            "trajectory": str(selected_trajectory_path or trajectory_path),
+            "trajectory_source": selected_trajectory_path.name if selected_trajectory_path else None,
             "trace": str(trace_path),
             "verifier_result": str(verifier_path),
         }

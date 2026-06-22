@@ -5,7 +5,7 @@ difficulty: 2
 tags: [search_files, regex]
 
 prompt: |
-  Find all files containing the regex pattern `def\s+\w+\(self` (methods).
+  In the current benchmark worktree, find all files containing the regex pattern `def\s+\w+\(self` (methods). Do not search outside the current worktree.
 
 allowed_tools:
   - search_files
