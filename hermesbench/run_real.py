@@ -226,6 +226,12 @@ def _run_hermes(
         **os.environ,
         "HOME": str(isolated_home),
         "HERMES_HOME": str(Path.home() / ".hermes"),
+        # Hermes tools resolve relative file paths and terminal commands from
+        # TERMINAL_CWD, not necessarily the subprocess cwd. Keep every task
+        # inside its isolated benchmark worktree; otherwise models can discover
+        # and mutate the repository fixtures in the parent checkout.
+        "TERMINAL_CWD": str(worktree),
+        "PWD": str(worktree),
         "PYTHONUNBUFFERED": "1",
         "TERM": "xterm-256color",
     }

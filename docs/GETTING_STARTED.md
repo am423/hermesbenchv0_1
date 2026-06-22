@@ -73,6 +73,6 @@ hermesbench run --task t01_terminal_smoke/t01_echo \
   --model your-gguf-name --base-url http://127.0.0.1:8080/v1
 ```
 
-Do **not** add `--use-hermes-config` for local no-auth servers. HermesBench passes the local `--base-url` and a placeholder API key to Hermes Agent so the request stays on the OpenAI-compatible endpoint instead of falling back to the user's configured provider.
+Do **not** add `--use-hermes-config` for local no-auth servers. HermesBench passes the local `--base-url` and a placeholder API key to Hermes Agent so the request stays on the OpenAI-compatible endpoint instead of falling back to the user's configured provider. It also sets `TERMINAL_CWD` per task so relative file reads/writes and terminal commands resolve inside the isolated benchmark worktree.
 
 Note: **`hermesbench run`** is the only benchmark entry point (real Hermes Agent). `tests/support/fake_hermes.py` is for optional pipeline tests only.

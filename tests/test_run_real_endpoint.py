@@ -65,6 +65,8 @@ def test_real_run_passes_local_base_url_and_dummy_key(monkeypatch, tmp_path: Pat
     assert env["OPENAI_BASE_URL"] == "http://127.0.0.1:8999/v1"
     assert env["OPENAI_MODEL"] == "qwen36-27b-nvfp4"
     assert env["OPENAI_API_KEY"] == "dummy"
+    assert env["TERMINAL_CWD"] == str(tmp_path)
+    assert env["PWD"] == str(tmp_path)
 
 
 def test_real_run_hermes_config_does_not_override_provider(monkeypatch, tmp_path: Path) -> None:

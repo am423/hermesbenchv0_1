@@ -23,7 +23,7 @@ Alternatively (OpenAI-compatible):
 - `OPENAI_BASE_URL` (e.g. `http://127.0.0.1:8080/v1` for local servers)
 - `OPENAI_MODEL`
 
-Without `--use-hermes-config`, `hermesbench run` passes `--base_url` / `--api_key` and sets `OPENAI_*` in the subprocess environment. If `OPENAI_API_KEY` is not set, HermesBench supplies a harmless `dummy` key. This is intentional: many local servers do not check auth, but Hermes Agent still needs an explicit key to stay on the OpenAI-compatible endpoint path instead of falling back to the user's configured Hermes provider.
+Without `--use-hermes-config`, `hermesbench run` passes `--base_url` / `--api_key` and sets `OPENAI_*` in the subprocess environment. If `OPENAI_API_KEY` is not set, HermesBench supplies a harmless `dummy` key. This is intentional: many local servers do not check auth, but Hermes Agent still needs an explicit key to stay on the OpenAI-compatible endpoint path instead of falling back to the user's configured Hermes provider. HermesBench also sets `TERMINAL_CWD` and `PWD` to the isolated task worktree so relative file reads/writes and shell commands cannot accidentally target the source checkout.
 
 ### Local vLLM / llama.cpp no-auth servers
 

@@ -125,7 +125,7 @@ export OPENAI_BASE_URL=http://127.0.0.1:8080/v1   # optional override
 hermesbench run --model local-model --all --base-url "$OPENAI_BASE_URL"
 ```
 
-For local no-auth servers, `OPENAI_API_KEY` may be unset; HermesBench injects a `dummy` key into `run_agent.py` so the run stays on the supplied `--base-url`. If logs show a cloud/OAuth endpoint instead of the local URL, mark that run invalid and rerun with the current endpoint-routing fix.
+For local no-auth servers, `OPENAI_API_KEY` may be unset; HermesBench injects a `dummy` key into `run_agent.py` so the run stays on the supplied `--base-url`. It also sets `TERMINAL_CWD` to each isolated task worktree so relative file/tool operations do not escape into the source checkout. If logs show a cloud/OAuth endpoint instead of the local URL, mark that run invalid and rerun with the current endpoint-routing fix.
 
 ### Dry-run (task selection only)
 
