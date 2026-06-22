@@ -96,26 +96,26 @@ def main(argv: list[str] | None = None) -> int:
     start = time.time()
     last_text = initial
 
-    # Read raw bytes from stdin (the tmux pipe-pane output)
-    # pyte.Stream.feed expects str
+    # Use os.read after select: TextIO.read(4096) can block waiting for a
+    # full buffer even though select reported at least one byte, causing tmux
+    # captures to miss short command bursts until EOF.
     import select
 
     last_flush = start
     iterations = 0
     bytes_read = 0
+    stdin_fd = sys.stdin.fileno()
     while True:
-        # Read available input (non-blocking-ish)
-        rlist, _, _ = select.select([sys.stdin], [], [], args.tick_ms / 1000.0)
+        rlist, _, _ = select.select([stdin_fd], [], [], args.tick_ms / 1000.0)
         if rlist:
-            chunk = sys.stdin.read(4096)
-            if not chunk:
+            raw = os.read(stdin_fd, 4096)
+            if not raw:
                 break  # EOF
-            bytes_read += len(chunk)
+            chunk = raw.decode(errors="replace")
+            bytes_read += len(raw)
             stream.feed(chunk)
-            # Debug: write to stderr so test can capture
             if os.environ.get("HERMESBENCH_DEBUG"):
                 pass
-        # Flush if enough time has passed
         now = time.time()
         if now - last_flush >= args.tick_ms / 1000.0:
             text = _screen_to_text(screen)

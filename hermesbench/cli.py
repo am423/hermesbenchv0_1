@@ -263,6 +263,14 @@ def _invoke_legacy_run(
     if real_agent:
         console.print("[cyan]using real hermes-agent[/cyan]")
 
+    results_root = Path(results_dir)
+    if not results_root.is_absolute():
+        results_root = (root / results_root).resolve()
+    if results_root.name == "results":
+        traces_root = results_root.parent / "traces"
+    else:
+        traces_root = results_root / "traces"
+
     passed = 0
     total = 0
     for _ in range(n_runs):
@@ -273,6 +281,8 @@ def _invoke_legacy_run(
                 spec,
                 model=model,
                 base_url=base_url or "",
+                results_root=results_root,
+                traces_root=traces_root,
                 dry_run=False,
                 use_real_agent=real_agent,
             )
@@ -304,7 +314,7 @@ def _invoke_legacy_run(
 @click.option("--run-id", default=None, help="Results/traces directory name")
 @click.option("--task", "tasks", multiple=True, help="Task ID (repeatable)")
 @click.option("--category", "-c", default=None, help="Run all tasks in this category prefix")
-@click.option("--all", "run_all", is_flag=True, help="Run all 51 tasks")
+@click.option("--all", "run_all", is_flag=True, help="Run all 61 tasks")
 @click.option("--max-turns", type=int, default=None)
 @click.option("--timeout-overhead", type=int, default=30)
 @click.option("--hermes-agent-path", type=click.Path(path_type=Path), default=None)
@@ -546,6 +556,37 @@ def score(paths: tuple[str, ...]) -> None:
         )
         for w in summary["thermal_warnings"]:
             console.print(f"  [yellow]⚠[/yellow] {w['task']}: {w['warning']}")
+
+
+@main.command(name="fixture-integrity")
+@click.option("--include-untracked", is_flag=True, help="Also report untracked fixture files")
+def fixture_integrity(include_untracked: bool) -> None:
+    """Detect polluted tracked fixtures before trusting benchmark scores."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--", "fixtures"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        console.print("[yellow]not a git checkout; fixture integrity unavailable[/yellow]")
+        sys.exit(4)
+
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    if not include_untracked:
+        lines = [line for line in lines if not line.startswith("??")]
+
+    if lines:
+        console.print("[red]Fixture integrity check failed; fixture files are modified:[/red]")
+        for line in lines:
+            console.print(f"  {line}")
+        console.print("Reset or intentionally commit fixture changes before scoring model quality.")
+        sys.exit(4)
+
+    console.print("[green]Fixture integrity OK[/green]")
 
 
 @main.command()

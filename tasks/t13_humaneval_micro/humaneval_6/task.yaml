@@ -1,0 +1,67 @@
+id: t13_humaneval_micro/humaneval_6
+name: "HumanEval HumanEval/6"
+version: 1
+difficulty: 2
+tags: [humaneval, coding, execute_code]
+
+prompt: |
+  Complete this Python function. You may use `execute_code` or `terminal` to test.
+  Reply with the full solution in a ```python code block when finished.
+
+  ```python
+  from typing import List
+
+
+  def parse_nested_parens(paren_string: str) -> List[int]:
+      """ Input to this function is a string represented multiple groups for nested parentheses separated by spaces.
+      For each of the group, output the deepest level of nesting of parentheses.
+      E.g. (()()) has maximum two levels of nesting while ((())) has three.
+
+      >>> parse_nested_parens('(()()) ((())) () ((())()())')
+      [2, 3, 1, 3]
+      """
+  ```
+
+allowed_tools:
+  - execute_code
+  - terminal
+
+forbidden_tools: []
+
+max_turns: 20
+max_tokens: 4096
+timeout_seconds: 180
+isolated_network: true
+
+fixture:
+  source: humaneval_micro/humaneval_6
+  globs: ["**/*"]
+
+sampling:
+  temperature: 0.0
+  top_p: 1.0
+  top_k: -1
+  seed: 42
+
+resource_limits:
+  max_memory_mb: 2048
+  max_processes: 128
+  max_file_size_mb: 100
+  max_worktree_mb: 500
+
+hermes_plugins: []
+
+latency_injection_ms:
+  terminal: 0
+  read_file: 0
+  patch: 0
+
+model_endpoint:
+  type: openai_chat_completions
+  required_fields: [tools, tool_choice]
+  forbidden_fields: [logprobs]
+
+verifier:
+  module: verifier
+  fn: verify
+  timeout_seconds: 30

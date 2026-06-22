@@ -27,7 +27,7 @@ TOOLSET_MAP = {
     "terminal": "terminal",
     "read_file": "file",
     "patch": "file",
-    "search_files": "search",
+    "search_files": "file",
     "write_file": "file",
     "process": "terminal",
     "todo": "todo",

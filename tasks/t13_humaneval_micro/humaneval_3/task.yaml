@@ -1,0 +1,68 @@
+id: t13_humaneval_micro/humaneval_3
+name: "HumanEval HumanEval/3"
+version: 1
+difficulty: 2
+tags: [humaneval, coding, execute_code]
+
+prompt: |
+  Complete this Python function. You may use `execute_code` or `terminal` to test.
+  Reply with the full solution in a ```python code block when finished.
+
+  ```python
+  from typing import List
+
+
+  def below_zero(operations: List[int]) -> bool:
+      """ You're given a list of deposit and withdrawal operations on a bank account that starts with
+      zero balance. Your task is to detect if at any point the balance of account fallls below zero, and
+      at that point function should return True. Otherwise it should return False.
+      >>> below_zero([1, 2, 3])
+      False
+      >>> below_zero([1, 2, -4, 5])
+      True
+      """
+  ```
+
+allowed_tools:
+  - execute_code
+  - terminal
+
+forbidden_tools: []
+
+max_turns: 20
+max_tokens: 4096
+timeout_seconds: 180
+isolated_network: true
+
+fixture:
+  source: humaneval_micro/humaneval_3
+  globs: ["**/*"]
+
+sampling:
+  temperature: 0.0
+  top_p: 1.0
+  top_k: -1
+  seed: 42
+
+resource_limits:
+  max_memory_mb: 2048
+  max_processes: 128
+  max_file_size_mb: 100
+  max_worktree_mb: 500
+
+hermes_plugins: []
+
+latency_injection_ms:
+  terminal: 0
+  read_file: 0
+  patch: 0
+
+model_endpoint:
+  type: openai_chat_completions
+  required_fields: [tools, tool_choice]
+  forbidden_fields: [logprobs]
+
+verifier:
+  module: verifier
+  fn: verify
+  timeout_seconds: 30

@@ -11,7 +11,7 @@ help:
 	@echo "  make test       - run the test suite (excludes integration)"
 	@echo "  make lint       - run lints (verifier stdlib, fixture size, fixture injection)"
 	@echo "  make install    - editable pip install"
-	@echo "  make run-all    - run all 48 tasks (requires a model server)"
+	@echo "  make run-all    - run all 61 tasks (requires a model server)"
 	@echo "  make clean      - remove traces/ and results/"
 
 demo:

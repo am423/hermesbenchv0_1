@@ -14,10 +14,10 @@ is this model at *using* hermes-agent?" — not just at generating text.
 
 ## What it does
 
-- **51 tasks** — 48 core tasks across 11 categories (terminal smoke,
+- **61 tasks** — 48 core tasks across 11 categories (terminal smoke,
   file read, patch, search, write, process, todo, execute_code,
-  web_lookup, memory, error_recovery) plus **3** `t12_real_world`
-  integration tasks
+  web_lookup, memory, error_recovery), **3** `t12_real_world`
+  integration tasks, plus **10** `t13_humaneval_micro` coding tasks
 - **Runs the real `AIAgent` from `~/.hermes/hermes-agent/`** in a
   subprocess with a custom `tmux_isolated` environment backend
 - **Captures three artifacts per task run:**
@@ -72,11 +72,12 @@ hermesbench run --engine legacy --task t01_terminal_smoke/t01_echo \
 | **`hermesbench run`** | **Benchmark** via real Hermes Agent (`run_agent.py`, default `--engine real`) |
 | `hermesbench run --engine legacy` | Legacy GitHub runner (tmux + statsd) |
 | `hermesbench report` | REPORT.md + video timeline from `summary.json` |
-| `hermesbench list` | List all 51 tasks |
+| `hermesbench list` | List all 61 tasks |
 | `hermesbench list --difficulty 2` | Filter by difficulty |
 | `hermesbench validate` | Lint all task.yaml + verifier files |
+| `hermesbench fixture-integrity` | Detect polluted tracked fixtures before scoring |
 | `hermesbench run --task <id>` | Run one task |
-| `hermesbench run --all` | Run all 51 tasks |
+| `hermesbench run --all` | Run all 61 tasks |
 | `hermesbench run --all --dry-run` | Validate without spawning hermes (Q72) |
 | `hermesbench run --resume <run_id>` | Resume a crashed run (Q24) |
 | `hermesbench run --n-runs 3` | Run each task 3× for variance (Q34) |
@@ -85,6 +86,24 @@ hermesbench run --engine legacy --task t01_terminal_smoke/t01_echo \
 | `hermesbench render <cast>` | `.cast` → `.gif`/`.mp4` with stats overlay (Q3.1a) |
 | `hermesbench render --examples` | Show 5 common render invocations (Q71) |
 | `hermesbench export-sft <runs>` | Traces → SFT jsonl with loss masks (Q45-Q47) |
+
+### Artifact locations
+
+By default, legacy task results land under `results/<run_id>/<task_id>/` and
+traces under `traces/<run_id>/<task_id>/`. If you pass `--results-dir OUT` to
+the legacy engine, verifier results are written under `OUT/<run_id>/<task_id>/`;
+traces are kept under `OUT/traces/<run_id>/<task_id>/` unless `OUT` is literally
+named `results`, in which case the historical sibling `traces/` directory is used.
+
+Before trusting patch/search/write scores, run:
+
+```bash
+hermesbench fixture-integrity
+```
+
+This catches tracked fixture pollution from prior real-agent runs while ignoring
+new untracked fixture files by default. Use `--include-untracked` for stricter
+release checks.
 
 ## Architecture (30-second version)
 
@@ -139,7 +158,7 @@ hermes-bench-tool-call/
 │   ├── hermes_invocation.py  # Q22 path, Q50 SHA, Q57 smoke
 │   ├── runner.py             # full task lifecycle
 │   └── cli.py                # click + rich CLI
-├── tasks/                    # 43 tasks in 11 categories
+├── tasks/                    # 61 tasks in 13 categories
 │   ├── _template/            # canonical task shape
 │   ├── t01_terminal_smoke/   # 5 tasks
 │   ├── t02_file_read/        # 6 tasks (incl. Q61 parallel)
@@ -151,12 +170,14 @@ hermes-bench-tool-call/
 │   ├── t08_execute_code/     # 5 tasks
 │   ├── t09_web_lookup/       # 3 tasks (mocked)
 │   ├── t10_memory_facts/     # 3 tasks
-│   └── t11_error_recovery/   # 3 tasks (Q58)
+│   ├── t11_error_recovery/   # 3 tasks (Q58)
+│   ├── t12_real_world/       # 3 tasks
+│   └── t13_humaneval_micro/  # 10 tasks
 ├── fixtures/                 # task input data (small_repo/, broken_code/, …)
 ├── scripts/
 │   ├── generate_tasks.py     # idempotent task generator (Q28)
 │   └── fake_model_server.py  # for end-to-end testing
-├── tests/                    # 47/47 passing
+├── tests/                    # regression and integration tests
 └── docs/
     ├── trace_format_reconciliation.md  # Q52
     ├── adding_backends.md               # Q9.3
@@ -166,7 +187,7 @@ hermes-bench-tool-call/
 ## Tests
 
 ```bash
-make test         # 47 passed, 1 deselected
+make test         # run unit/integration-light regression suite
 ```
 
 - `test_smoke.py` — package import, pytest collect

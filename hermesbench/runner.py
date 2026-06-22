@@ -63,6 +63,8 @@ def run_task(
     model: str,
     base_url: str,
     repo_root: Path = REPO,
+    results_root: Path | None = None,
+    traces_root: Path | None = None,
     dry_run: bool = False,
     use_real_agent: bool = False,
 ) -> TaskResult:
@@ -74,6 +76,8 @@ def run_task(
     run_id = make_run_id(model)
     run_id_str = str(run_id)
     started_at = time.time()
+    results_base = results_root or repo_root / "results"
+    traces_base = traces_root or repo_root / "traces"
 
     # 1. Resolve hermes-agent (Q22)
     from hermesbench.hermes_invocation import (
@@ -104,9 +108,11 @@ def run_task(
     hermes_version = get_hermes_version(hermes_path)
 
     # 2. Setup worktree (Q55)
-    worktree = worktree_setup.setup_worktree(task, run_id=run_id_str, repo_root=repo_root)
+    worktree = worktree_setup.setup_worktree(
+        task, run_id=run_id_str, repo_root=repo_root, traces_root=traces_base
+    )
     isolated_home = Path(tempfile.mkdtemp(prefix=f"hb-home-{run_id.nonce}-"))
-    task_dir = repo_root / "traces" / run_id_str / task.id
+    task_dir = traces_base / run_id_str / task.id
     cast_path = task_dir / "trace.cast"
     stats_path = task_dir / "stats.jsonl"
     trace_path = task_dir / "trace.jsonl"
@@ -312,6 +318,8 @@ def run_task(
     verifier_result = _run_verifier(task, worktree, trace_path)
 
     # 11. Write meta.json
+    from hermesbench import __version__
+
     meta = RunMeta(
         run_id=run_id_str,
         model=model,
@@ -319,7 +327,7 @@ def run_task(
         hermes_sha=hermes_sha,
         hermes_path=str(hermes_path),
         hermes_agent_version=hermes_version,
-        hermesbench_version="0.1.0",
+        hermesbench_version=__version__,
         started_at=started_at,
         finished_at=finished_at,
         status="completed" if hermes_proc.returncode == 0 else "crashed",
@@ -334,7 +342,7 @@ def run_task(
     meta_path.write_text(json.dumps(meta.__dict__, indent=2, default=str))
 
     # 12. Write verifier_result.json
-    results_subdir = repo_root / "results" / run_id_str / task.id
+    results_subdir = results_base / run_id_str / task.id
     results_subdir.mkdir(parents=True, exist_ok=True)
     (results_subdir / "verifier_result.json").write_text(
         json.dumps(

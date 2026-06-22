@@ -5,6 +5,7 @@ __pycache__/
 results/
 traces/
 .env
+.hermes/
 .hermesbench.yaml
 hermesbench.yaml
 *.mp4

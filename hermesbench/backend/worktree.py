@@ -17,14 +17,18 @@ def setup_worktree(
     *,
     run_id: str,
     repo_root: Path,
+    traces_root: Path | None = None,
 ) -> Path:
     """Create the per-task worktree and copy the declared fixture.
 
     Returns the worktree path. Caller is responsible for running the
     task and for *not* deleting the worktree (per Q55: persistent).
     """
-    # Q55: persistent location
-    worktree = repo_root / "traces" / run_id / task.id / "worktree"
+    # Q55: persistent location. Keep the default historical path under
+    # repo_root/traces, but allow the CLI --results-dir plumbing to keep
+    # traces beside custom result roots.
+    traces_base = traces_root or repo_root / "traces"
+    worktree = traces_base / run_id / task.id / "worktree"
     worktree.mkdir(parents=True, exist_ok=True)
 
     # Copy fixture
@@ -59,8 +63,13 @@ def results_dir(run_id: str, repo_root: Path) -> Path:
     return p
 
 
-def trace_dir(run_id: str, task_id: str, repo_root: Path) -> Path:
+def trace_dir(
+    run_id: str,
+    task_id: str,
+    repo_root: Path,
+    traces_root: Path | None = None,
+) -> Path:
     """The per-task trace/cast/stats directory (Q55)."""
-    p = repo_root / "traces" / run_id / task_id
+    p = (traces_root or repo_root / "traces") / run_id / task_id
     p.mkdir(parents=True, exist_ok=True)
     return p
