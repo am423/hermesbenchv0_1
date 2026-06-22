@@ -5,13 +5,13 @@ difficulty: 2
 tags: [todo, planning]
 
 prompt: |
-  Use `todo` to break this into 4 steps: (1) read add.py, (2) understand it, (3) add a docstring, (4) verify with a syntax check.
+  Use the `todo` tool only to create a 4-step plan for improving `add.py`:
+  (1) read add.py, (2) understand it, (3) add a docstring, and
+  (4) verify with a syntax check. Do not read files, patch files, or run
+  terminal commands; this task is only testing todo-list decomposition.
 
 allowed_tools:
   - todo
-  - read_file
-  - patch
-  - terminal
 
 forbidden_tools: []
 
