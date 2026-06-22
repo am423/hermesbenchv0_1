@@ -224,6 +224,17 @@ def _load_tasks(repo_root: Path, task_ids: list[str] | None) -> list[TaskSpec]:
     return [tasks_by_id[tid] for tid in task_ids]
 
 
+def _build_task_query(task: TaskSpec, worktree: Path) -> str:
+    """Add an explicit benchmark-worktree guard to the user task prompt."""
+
+    return (
+        f"Benchmark worktree: {worktree}\n"
+        "Use this directory as the current workspace for all relative file and terminal operations. "
+        "Prefer relative paths. Do not inspect or modify the HermesBench source checkout unless the task explicitly asks for it.\n\n"
+        f"Task: {task.prompt}"
+    )
+
+
 def _run_hermes(
     *,
     hermes_path: Path,
@@ -274,7 +285,7 @@ def _run_hermes(
         "--max_turns",
         str(max_turns),
         "--query",
-        task.prompt,
+        _build_task_query(task, worktree),
     ]
     if not use_hermes_config and base_url:
         cmd.extend(["--base_url", base_url, "--api_key", api_key])

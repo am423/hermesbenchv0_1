@@ -6,6 +6,7 @@ from pathlib import Path
 
 from hermesbench.cli import _load_task
 from hermesbench.run_real import (
+    _build_task_query,
     _completed_tasks_by_id,
     _merge_task_rows,
     tasks_to_run_with_resume,
@@ -61,3 +62,12 @@ def test_load_summary_from_disk(tmp_path: Path) -> None:
     loaded = _load_existing_summary(path)
     assert loaded is not None
     assert _completed_tasks_by_id(loaded)["x"]["status"] == "PASS"
+
+
+def test_build_task_query_includes_worktree(tmp_path: Path) -> None:
+    task = _fake_task("a/t1")
+    query = _build_task_query(task, tmp_path)
+
+    assert f"Benchmark worktree: {tmp_path}" in query
+    assert "Prefer relative paths" in query
+    assert task.prompt in query
