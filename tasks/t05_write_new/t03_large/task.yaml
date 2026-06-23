@@ -5,7 +5,8 @@ difficulty: 2
 tags: [write_file, scale]
 
 prompt: |
-  Write `big.txt` containing 10000 lines, each numbered `Line N`.
+  Create `big.txt` containing 10000 lines, each numbered `Line N`.
+  Use `terminal` or a short script to generate the file; do not try to inline all 10000 lines in a tool argument.
 
 allowed_tools:
   - write_file
@@ -15,7 +16,7 @@ forbidden_tools: []
 
 max_turns: 10
 max_tokens: 4096
-timeout_seconds: 60
+timeout_seconds: 120
 isolated_network: true
 
 fixture:

@@ -5,7 +5,7 @@ difficulty: 2
 tags: [memory, dedup]
 
 prompt: |
-  Try to save the same fact as t10_t01 again. Recognize it's a duplicate and don't save.
+  Use `memory` to check whether the benchmark fact 'HermesBench memory benchmark calibration code is blue-swan-42' already exists. If it already exists, recognize it as a duplicate and do not add a second copy.
 
 allowed_tools:
   - memory

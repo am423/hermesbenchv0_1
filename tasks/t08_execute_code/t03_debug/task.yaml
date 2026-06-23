@@ -5,7 +5,7 @@ difficulty: 3
 tags: [execute_code, debug]
 
 prompt: |
-  The function `factorial(n)` in `buggy.py` is incorrect. Use `execute_code` to find the bug and report it.
+  The function `factorial(n)` in `buggy.py` is incorrect. Use `execute_code` to run a small test that imports `buggy.factorial`, find the bug, and report it.
 
 allowed_tools:
   - execute_code

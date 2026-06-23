@@ -27,6 +27,12 @@ def test_big_file_fixture_exists_for_paginated_read() -> None:
     assert len(text.splitlines()) >= 150
 
 
+def test_buggy_fixture_exists_for_execute_code_debug() -> None:
+    text = (REPO / "fixtures/small_repo/buggy.py").read_text(encoding="utf-8")
+    assert "def factorial" in text
+    assert "result = 0" in text
+
+
 def test_big_block_fixture_starts_without_bar() -> None:
     text = (REPO / "fixtures/small_repo/big_block.py").read_text(encoding="utf-8")
     assert "def method_10" in text
@@ -77,6 +83,10 @@ def test_prompt_verifier_alignment_for_prior_step37_failures() -> None:
     zombie_prompt = (REPO / "tasks/t06_process_mgmt/t05_zombie/task.yaml").read_text(encoding="utf-8")
     todo_prompt = (REPO / "tasks/t07_todo_plan/t02_update/task.yaml").read_text(encoding="utf-8")
     no_result_prompt = (REPO / "tasks/t09_web_lookup/t03_no_result/task.yaml").read_text(encoding="utf-8")
+    large_write_prompt = (REPO / "tasks/t05_write_new/t03_large/task.yaml").read_text(encoding="utf-8")
+    execute_debug_prompt = (REPO / "tasks/t08_execute_code/t03_debug/task.yaml").read_text(encoding="utf-8")
+    memory_save_prompt = (REPO / "tasks/t10_memory_facts/t01_save/task.yaml").read_text(encoding="utf-8")
+    memory_recall_prompt = (REPO / "tasks/t10_memory_facts/t02_recall/task.yaml").read_text(encoding="utf-8")
 
     assert "search_files" in glob_prompt and "file_glob" in glob_prompt
     assert "process` tool" in kill_prompt and 'action: "kill"' in kill_prompt
@@ -84,6 +94,10 @@ def test_prompt_verifier_alignment_for_prior_step37_failures() -> None:
     assert "ps -eo pid,ppid,stat,comm" in zombie_prompt and "Do not use `ps aux`" in zombie_prompt
     assert "todo` tool" in todo_prompt and "completed" in todo_prompt
     assert "web_search" in no_result_prompt
+    assert "short script" in large_write_prompt and "do not try to inline" in large_write_prompt
+    assert "buggy.factorial" in execute_debug_prompt and "execute_code" in execute_debug_prompt
+    assert "blue-swan-42" in memory_save_prompt and "action `add`" in memory_save_prompt
+    assert "blue-swan-42" in memory_recall_prompt and "Use `memory`" in memory_recall_prompt
 
 
 def test_detect_infra_error_for_context_overflow_crash_without_trajectory(tmp_path: Path) -> None:

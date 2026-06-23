@@ -5,7 +5,7 @@ difficulty: 2
 tags: [memory, recall]
 
 prompt: |
-  Recall the fact you saved in t10_t01.
+  Use `memory` to recall the benchmark fact saved in t10_t01. It contains the calibration code `blue-swan-42`.
 
 allowed_tools:
   - memory

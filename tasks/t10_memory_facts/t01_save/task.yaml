@@ -5,7 +5,7 @@ difficulty: 2
 tags: [memory, basics]
 
 prompt: |
-  Use `memory` to save the fact: 'hermesbench v0.1 was released today'.
+  Use `memory` with action `add` to save this exact benchmark fact: 'HermesBench memory benchmark calibration code is blue-swan-42'.
 
 allowed_tools:
   - memory
@@ -14,7 +14,7 @@ forbidden_tools: []
 
 max_turns: 10
 max_tokens: 4096
-timeout_seconds: 60
+timeout_seconds: 120
 isolated_network: true
 
 fixture:
