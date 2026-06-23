@@ -76,6 +76,31 @@ def test_real_run_passes_local_base_url_and_dummy_key(monkeypatch, tmp_path: Pat
     assert env["PWD"] == str(tmp_path)
 
 
+def test_real_run_quotes_comma_toolsets_for_fire(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+    hermes_path = tmp_path / "hermes-agent"
+    hermes_path.mkdir()
+    (hermes_path / "run_agent.py").write_text("", encoding="utf-8")
+    task = TaskSpec.from_yaml(REPO / "tasks" / "t04_search_grep" / "t02_glob" / "task.yaml")
+
+    _run_hermes(
+        hermes_path=hermes_path,
+        worktree=tmp_path,
+        isolated_home=tmp_path / "home",
+        task=task,
+        model="stepfun-3.7-flash-nvfp4",
+        base_url="http://127.0.0.1:30000/v1",
+        toolsets="file,terminal",
+        max_turns=2,
+        log_path=tmp_path / "run.log",
+        timeout_seconds=10,
+        use_hermes_config=False,
+    )
+
+    cmd = _FakePopen.captured["cmd"]
+    assert "--enabled_toolsets='file,terminal'" in cmd
+
+
 def test_real_run_hermes_config_does_not_override_provider(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(subprocess, "Popen", _FakePopen)
     hermes_path = tmp_path / "hermes-agent"

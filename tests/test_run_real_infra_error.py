@@ -21,6 +21,21 @@ def test_detect_infra_error_for_connection_failure_without_trajectory(tmp_path: 
     assert "infrastructure/API failure" in reason
 
 
+def test_detect_infra_error_for_fire_tuple_toolsets_without_trajectory(tmp_path: Path) -> None:
+    log = tmp_path / "run_agent.log"
+    log.write_text("AttributeError: 'tuple' object has no attribute 'split'\n", encoding="utf-8")
+    completed = subprocess.CompletedProcess(["run_agent.py"], 1, "", "")
+
+    reason = _detect_infra_error(
+        completed=completed,
+        log_path=log,
+        selected_trajectory_path=None,
+    )
+
+    assert reason is not None
+    assert "infrastructure/API failure" in reason
+
+
 def test_detect_infra_error_does_not_mask_model_failure_with_trajectory(tmp_path: Path) -> None:
     log = tmp_path / "run_agent.log"
     log.write_text("APIConnectionError happened earlier but trajectory exists\n", encoding="utf-8")
