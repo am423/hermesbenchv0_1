@@ -21,6 +21,12 @@ def _load_module(path: Path):
     return mod
 
 
+def test_big_file_fixture_exists_for_paginated_read() -> None:
+    text = (REPO / "fixtures/small_repo/big_file.py").read_text(encoding="utf-8")
+    assert "def generated_function_001" in text
+    assert len(text.splitlines()) >= 150
+
+
 def test_big_block_fixture_starts_without_bar() -> None:
     text = (REPO / "fixtures/small_repo/big_block.py").read_text(encoding="utf-8")
     assert "def method_10" in text
