@@ -298,6 +298,7 @@ def _run_hermes(
     hermes_path: Path,
     worktree: Path,
     isolated_home: Path,
+    hermes_home: Path,
     task: TaskSpec,
     model: str,
     base_url: str,
@@ -310,7 +311,9 @@ def _run_hermes(
     env = {
         **os.environ,
         "HOME": str(isolated_home),
-        "HERMES_HOME": str(Path.home() / ".hermes"),
+        # Keep benchmark memory/session writes out of the user's real Hermes
+        # profile while preserving memory across tasks in the same run.
+        "HERMES_HOME": str(hermes_home),
         # Hermes tools resolve relative file paths and terminal commands from
         # TERMINAL_CWD, not necessarily the subprocess cwd. Keep every task
         # inside its isolated benchmark worktree; otherwise models can discover
@@ -467,6 +470,8 @@ def run_real_benchmark(
 
     results_root.mkdir(parents=True, exist_ok=True)
     traces_root.mkdir(parents=True, exist_ok=True)
+    run_hermes_home = Path.home() / ".hermes" / "tmp" / f"hb-hermes-home-{rid}"
+    run_hermes_home.mkdir(parents=True, exist_ok=True)
 
     if prior_summary and resume:
         summary = dict(prior_summary)
@@ -520,6 +525,7 @@ def run_real_benchmark(
             hermes_path=hermes_path,
             worktree=worktree,
             isolated_home=isolated_home,
+            hermes_home=run_hermes_home,
             task=task,
             model=model,
             base_url=base_url,

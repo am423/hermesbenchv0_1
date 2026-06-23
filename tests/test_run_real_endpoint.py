@@ -53,6 +53,7 @@ def test_real_run_passes_local_base_url_and_dummy_key(monkeypatch, tmp_path: Pat
         hermes_path=hermes_path,
         worktree=tmp_path,
         isolated_home=tmp_path / "home",
+        hermes_home=tmp_path / "hermes-home",
         task=task,
         model="qwen36-27b-nvfp4",
         base_url="http://127.0.0.1:8999/v1",
@@ -72,6 +73,7 @@ def test_real_run_passes_local_base_url_and_dummy_key(monkeypatch, tmp_path: Pat
     assert env["OPENAI_BASE_URL"] == "http://127.0.0.1:8999/v1"
     assert env["OPENAI_MODEL"] == "qwen36-27b-nvfp4"
     assert env["OPENAI_API_KEY"] == "dummy"
+    assert env["HERMES_HOME"] == str(tmp_path / "hermes-home")
     assert env["TERMINAL_CWD"] == str(tmp_path)
     assert env["PWD"] == str(tmp_path)
 
@@ -87,6 +89,7 @@ def test_real_run_quotes_comma_toolsets_for_fire(monkeypatch, tmp_path: Path) ->
         hermes_path=hermes_path,
         worktree=tmp_path,
         isolated_home=tmp_path / "home",
+        hermes_home=tmp_path / "hermes-home",
         task=task,
         model="stepfun-3.7-flash-nvfp4",
         base_url="http://127.0.0.1:30000/v1",
@@ -112,6 +115,7 @@ def test_real_run_hermes_config_does_not_override_provider(monkeypatch, tmp_path
         hermes_path=hermes_path,
         worktree=tmp_path,
         isolated_home=tmp_path / "home",
+        hermes_home=tmp_path / "hermes-home",
         task=task,
         model="configured-model",
         base_url="http://127.0.0.1:8999/v1",
