@@ -28,6 +28,26 @@ def _extract_python_completion(text: str) -> str:
     return text.strip()
 
 
+def _prompt_imports(prompt: str) -> str:
+    """Return top-level import lines from a HumanEval prompt.
+
+    Models are asked to reply with a full solution, but many omit imports that
+    are already visible in the prompt (for example ``from typing import List``).
+    The verifier should judge the solution logic, not fail a valid function on
+    a missing annotation import supplied by the benchmark prompt.
+    """
+
+    imports: list[str] = []
+    for line in prompt.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("import ") or stripped.startswith("from "):
+            imports.append(line)
+            continue
+        if stripped.startswith("def "):
+            break
+    return "\n".join(imports)
+
+
 def _text_from_trace(trace: list[dict]) -> str:
     parts: list[str] = []
     for msg in trace:
@@ -48,7 +68,11 @@ def _run_humaneval_check(
     timeout_s: int = 15,
 ) -> tuple[bool, str]:
     body = _extract_python_completion(completion)
-    program = body if "def " in body else prompt + body
+    if "def " in body:
+        imports = _prompt_imports(prompt)
+        program = f"{imports}\n\n{body}" if imports and imports not in body else body
+    else:
+        program = prompt + body
     script = f"""import sys
 {program}
 {test}

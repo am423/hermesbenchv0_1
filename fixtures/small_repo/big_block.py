@@ -28,6 +28,3 @@ class Foo:
 
     def method_10(self):
         return 10
-
-    def bar(self):
-        return 42

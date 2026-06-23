@@ -5,7 +5,7 @@ difficulty: 3
 tags: [process, zombie]
 
 prompt: |
-  List all running processes and report any zombie processes you see.
+  Inspect the running process table with a concise command such as `ps -eo pid,ppid,stat,comm` and report any zombie processes you see. Do not use `ps aux`.
 
 allowed_tools:
   - process

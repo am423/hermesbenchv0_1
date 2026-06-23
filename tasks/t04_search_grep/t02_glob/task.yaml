@@ -5,7 +5,7 @@ difficulty: 2
 tags: [search_files, glob]
 
 prompt: |
-  Find all files in the worktree matching the glob `*.py` that contain `def `.
+  Use `search_files` with `file_glob: "*.py"` to find all files in the worktree that contain `def `.
 
 allowed_tools:
   - search_files

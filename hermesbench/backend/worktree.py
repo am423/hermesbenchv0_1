@@ -29,6 +29,8 @@ def setup_worktree(
     # traces beside custom result roots.
     traces_base = traces_root or repo_root / "traces"
     worktree = traces_base / run_id / task.id / "worktree"
+    if worktree.exists():
+        shutil.rmtree(worktree)
     worktree.mkdir(parents=True, exist_ok=True)
 
     # Copy fixture

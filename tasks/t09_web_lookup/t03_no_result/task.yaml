@@ -5,7 +5,7 @@ difficulty: 2
 tags: [web_search, edge_case]
 
 prompt: |
-  Search for `XXNORESULTXX`. Report that nothing was found.
+  Use `web_search` to search the web for `XXNORESULTXX`. Report that nothing was found.
 
 allowed_tools:
   - web_search

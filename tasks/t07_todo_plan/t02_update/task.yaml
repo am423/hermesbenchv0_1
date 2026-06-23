@@ -5,7 +5,7 @@ difficulty: 2
 tags: [todo, status]
 
 prompt: |
-  Mark todo items as `in_progress` and then `completed` as you work through them.
+  Use the `todo` tool to create two simple items named `inspect workspace` and `report status`. Mark exactly one item `in_progress`, then update both items to `completed`, and report the final todo statuses.
 
 allowed_tools:
   - todo
