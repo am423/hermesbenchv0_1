@@ -245,12 +245,12 @@ def _detect_infra_error(
         return "agent subprocess timed out before producing a trajectory"
     if selected_trajectory_path is not None:
         return None
-    if completed.returncode == 0:
-        return None
     text = log_path.read_text(encoding="utf-8", errors="ignore") if log_path.exists() else ""
     for pattern in INFRA_ERROR_PATTERNS:
         if pattern in text:
             return f"infrastructure/API failure: {pattern}"
+    if completed.returncode == 0:
+        return None
     return None
 
 
