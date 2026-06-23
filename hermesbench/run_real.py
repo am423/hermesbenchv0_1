@@ -580,6 +580,22 @@ def run_real_benchmark(
 
         _write_json(results_root / f"{task.id.replace('/', '_')}.json", row)
 
+        # Persist an incrementally resumable summary after every task. Long
+        # local-model runs can be interrupted by endpoint crashes; without this
+        # checkpoint, a later --resume has no completed PASS/FAIL rows to skip.
+        summary["tasks"] = _merge_task_rows(selected_ids, completed_by_id, fresh_rows)
+        passed = sum(1 for item in summary["tasks"] if item["status"] == "PASS")
+        infra_errors = sum(1 for item in summary["tasks"] if item["status"] == "INFRA_ERROR")
+        summary["passed"] = passed
+        summary["infra_errors"] = infra_errors
+        summary["failed"] = sum(1 for item in summary["tasks"] if item["status"] == "FAIL")
+        summary["pass_rate"] = passed / len(summary["tasks"]) if summary["tasks"] else 0.0
+        summary["valid_task_count"] = len(summary["tasks"]) - infra_errors
+        summary["valid_pass_rate"] = (
+            passed / summary["valid_task_count"] if summary["valid_task_count"] else 0.0
+        )
+        _write_json(results_root / "summary.json", summary)
+
     summary["tasks"] = _merge_task_rows(selected_ids, completed_by_id, fresh_rows)
 
     passed = sum(1 for item in summary["tasks"] if item["status"] == "PASS")
