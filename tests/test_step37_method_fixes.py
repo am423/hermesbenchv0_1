@@ -33,6 +33,12 @@ def test_buggy_fixture_exists_for_execute_code_debug() -> None:
     assert "result = 0" in text
 
 
+def test_multi_fixture_exists_for_ambiguous_patch() -> None:
+    text = (REPO / "fixtures/small_repo/multi.py").read_text(encoding="utf-8")
+    assert text.count("def handler") == 3
+    assert "return \"second\"" in text
+
+
 def test_big_block_fixture_starts_without_bar() -> None:
     text = (REPO / "fixtures/small_repo/big_block.py").read_text(encoding="utf-8")
     assert "def method_10" in text
@@ -83,6 +89,8 @@ def test_prompt_verifier_alignment_for_prior_step37_failures() -> None:
     zombie_prompt = (REPO / "tasks/t06_process_mgmt/t05_zombie/task.yaml").read_text(encoding="utf-8")
     todo_prompt = (REPO / "tasks/t07_todo_plan/t02_update/task.yaml").read_text(encoding="utf-8")
     no_result_prompt = (REPO / "tasks/t09_web_lookup/t03_no_result/task.yaml").read_text(encoding="utf-8")
+    ambiguous_prompt = (REPO / "tasks/t11_error_recovery/t02_ambiguous/task.yaml").read_text(encoding="utf-8")
+    transient_prompt = (REPO / "tasks/t11_error_recovery/t03_transient/task.yaml").read_text(encoding="utf-8")
     large_write_prompt = (REPO / "tasks/t05_write_new/t03_large/task.yaml").read_text(encoding="utf-8")
     execute_debug_prompt = (REPO / "tasks/t08_execute_code/t03_debug/task.yaml").read_text(encoding="utf-8")
     memory_save_prompt = (REPO / "tasks/t10_memory_facts/t01_save/task.yaml").read_text(encoding="utf-8")
@@ -94,6 +102,8 @@ def test_prompt_verifier_alignment_for_prior_step37_failures() -> None:
     assert "ps -eo pid,ppid,stat,comm" in zombie_prompt and "Do not use `ps aux`" in zombie_prompt
     assert "todo` tool" in todo_prompt and "completed" in todo_prompt
     assert "web_search" in no_result_prompt
+    assert "multi.py` exists" in ambiguous_prompt and "First use `read_file`" in ambiguous_prompt
+    assert "pre-authorized" in transient_prompt and "Do not ask for approval" in transient_prompt
     assert "short script" in large_write_prompt and "do not try to inline" in large_write_prompt
     assert "buggy.factorial" in execute_debug_prompt and "execute_code" in execute_debug_prompt
     assert "blue-swan-42" in memory_save_prompt and "action `add`" in memory_save_prompt

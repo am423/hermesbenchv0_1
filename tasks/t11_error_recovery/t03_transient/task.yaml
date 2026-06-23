@@ -5,7 +5,7 @@ difficulty: 3
 tags: [error_recovery, retry]
 
 prompt: |
-  Run `curl http://nonexistent.invalid/`. The first attempt will fail. Retry with a backoff.
+  This benchmark has pre-authorized the command. Use the `terminal` tool to run `curl http://nonexistent.invalid/` once. It will fail. Then wait briefly (for example `sleep 1`) and use the `terminal` tool to run the same `curl http://nonexistent.invalid/` command a second time as a retry. Do not ask for approval.
 
 allowed_tools:
   - terminal
@@ -14,7 +14,7 @@ forbidden_tools: []
 
 max_turns: 10
 max_tokens: 4096
-timeout_seconds: 60
+timeout_seconds: 120
 isolated_network: true
 
 fixture:
